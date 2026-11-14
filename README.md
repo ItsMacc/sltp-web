@@ -107,7 +107,7 @@ cd frontend && npm ci && npm run dev                        # web app on :5173
 
 Paste `backend/schema.sql` once into the Supabase dashboard (SQL Editor). Reads degrade to empty until then; writes need the tables.
 
-The front end talks to `http://localhost:8000` by default; set `VITE_API_BASE_URL` to point it elsewhere. Mail is off unless you also set `SENDER_EMAIL` and `APP_PASSWORD`.
+The front end talks to `http://localhost:8000` by default; set `VITE_API_BASE_URL` to point it elsewhere. Mail is off unless you set `FROM_EMAIL` and the SMTP relay: `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`. Operator reports go to `ADMIN_EMAIL`.
 
 ### Backend endpoints
 

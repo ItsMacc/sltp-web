@@ -55,9 +55,17 @@ interface Env {
 
 interface Reservation {
   allowed: boolean;
-  reason: 'existing' | 'hard' | null;
+  reason: 'existing' | 'hard' | 'requests' | null;
   limit: number;
   used: number;
+  requests: number;
+  resetsAt: string;
+}
+
+interface Gate {
+  allowed: boolean;
+  requests: number;
+  limit: number;
   resetsAt: string;
 }
 
@@ -107,6 +115,73 @@ async function reserve(env: Env, isNewDevice: boolean): Promise<Reservation> {
   });
   if (!res.ok) throw new Error(`budget unavailable (${res.status})`);
   return (await res.json()) as Reservation;
+}
+
+/**
+ * Counts one inbound request against the daily Workers quota, cache hit or
+ * not. Fails open: a Durable Object hiccup must not take the data path down,
+ * and the monthly R2 ceiling still applies on the miss path.
+ */
+async function tick(env: Env): Promise<Gate | null> {
+  try {
+    const res = await budget(env).fetch('https://budget/tick', { method: 'POST' });
+    if (res.status === 429) return (await res.json()) as Gate;
+    if (!res.ok) return null;
+    return (await res.json()) as Gate;
+  } catch {
+    return null;
+  }
+}
+
+/** The current data version, cached at the edge and in this isolate. A
+    versioned URL is only valid for the version the manifest names today. */
+const VERSION_TTL_MS = 30_000;
+let cachedVersion: { value: string; at: number } | null = null;
+
+async function currentVersion(env: Env): Promise<string | null> {
+  if (cachedVersion && Date.now() - cachedVersion.at < VERSION_TTL_MS) {
+    return cachedVersion.value;
+  }
+  const manifestCache = new Request('https://bucket.local/v/live/META/manifest.json');
+  try {
+    const hit = await EDGE.match(manifestCache);
+    if (hit) {
+      const data = (await hit.json()) as { version?: unknown };
+      if (typeof data.version === 'string') {
+        cachedVersion = { value: data.version, at: Date.now() };
+        return data.version;
+      }
+    }
+  } catch {
+    // Fall through to R2.
+  }
+  try {
+    const object = await env.BUCKET.get('META/manifest.json');
+    if (!object?.body) return null;
+    const data = JSON.parse(await new Response(object.body).text()) as { version?: unknown };
+    if (typeof data.version !== 'string') return null;
+    cachedVersion = { value: data.version, at: Date.now() };
+    return data.version;
+  } catch {
+    return null;
+  }
+}
+
+function requestLimited(gate: Gate): Response {
+  const retryAfter = Math.max(1, Math.ceil((Date.parse(gate.resetsAt) - Date.now()) / 1000));
+  return json(
+    {
+      paused: true,
+      reason: 'requests',
+      message:
+        'Too many market-data requests today. Downloads resume after midnight UTC; anything already saved keeps working.',
+      requests: gate.requests,
+      limit: gate.limit,
+      resetsAt: gate.resetsAt,
+    },
+    429,
+    { 'retry-after': String(retryAfter) },
+  );
 }
 
 /** A reserved read that never reached R2 is given back. */
@@ -190,12 +265,27 @@ export default {
       return json({ error: 'method not allowed' }, 405, { allow: 'GET, HEAD' });
     }
 
+    // A date in the path is only valid while it is the version the manifest
+    // publishes. Without this, any date worked: `/v/1999-01-01/...` served the
+    // current bytes, let a client mint unlimited immutable cache entries and
+    // spend one R2 read for each. `live` stays open because the engine reads
+    // its metadata through it.
+    if (version !== 'live') {
+      const current = await currentVersion(env);
+      if (current !== null && version !== current) {
+        return json({ error: 'unknown data version' }, 404);
+      }
+    }
+
     // The cache key drops the `new` flag so a returning device and a first-time
     // device share the same edge copy.
     const cacheKey = new Request(`https://bucket.local/v/${version}/${encodedKey}`, { method: 'GET' });
     if (request.method === 'GET') {
       const hit = await EDGE.match(cacheKey);
       if (hit) {
+        // A cache hit costs no R2 read, but it is still a Workers request.
+        const gate = await tick(env);
+        if (gate && !gate.allowed) return requestLimited(gate);
         return withCors(
           new Response(hit.body, {
             status: hit.status,
@@ -211,7 +301,16 @@ export default {
     } catch {
       return json({ paused: true, reason: 'unavailable', message: 'Market data is briefly unavailable.' }, 503);
     }
-    if (!reservation.allowed) return paused(reservation);
+    if (!reservation.allowed) {
+      return reservation.reason === 'requests'
+                  ? requestLimited({
+            allowed: false,
+            requests: reservation.requests,
+            limit: reservation.limit,
+            resetsAt: reservation.resetsAt,
+          })
+        : paused(reservation);
+    }
 
     let size = 0;
     let etag = '';

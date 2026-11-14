@@ -6,6 +6,7 @@
 // comes from), so the policy cannot promise behaviour the platform lacks.
 import type { ReactNode } from 'react';
 import Button from '../ui/Button';
+import { LEGAL_EMAIL } from '../data/contact';
 import './LegalPage.css';
 
 export type LegalPageKind = 'privacy' | 'terms';
@@ -39,8 +40,6 @@ interface LegalDocument {
   intro: ReactNode;
   sections: LegalSection[];
 }
-
-const legalEmail = 'legal.sltp@gmail.com';
 
 // Sources for the statements in this document:
 //   app/auth/auth.py            session tokens, JWKS verification, profile read
@@ -435,8 +434,8 @@ const privacyDocument: LegalDocument = {
             <>
               For a privacy question, an access or deletion request, or a report about this
               policy, write to{' '}
-              <a className="st-legal-link" href={`mailto:${legalEmail}`}>
-                {legalEmail}
+              <a className="st-legal-link" href={`mailto:${LEGAL_EMAIL}`}>
+                {LEGAL_EMAIL}
               </a>
               . Include the email address on your account so we can locate it. We answer privacy
               requests within 30 days, and if a request needs longer or cannot be met, we will
@@ -759,8 +758,8 @@ const termsDocument: LegalDocument = {
           text: (
             <>
               For any questions regarding these Terms of Service, please contact us at{' '}
-              <a className="st-legal-link" href={`mailto:${legalEmail}`}>
-                {legalEmail}
+              <a className="st-legal-link" href={`mailto:${LEGAL_EMAIL}`}>
+                {LEGAL_EMAIL}
               </a>
               .
             </>

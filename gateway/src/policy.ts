@@ -17,6 +17,11 @@
 export const EXISTING_LIMIT = 9_000_000;
 export const HARD_LIMIT = 9_950_000;
 
+/** Requests per UTC day, cache hits included. The Workers Free plan stops the
+    whole Worker at 100,000/day (Error 1027), so the gate closes earlier and
+    says so, leaving room for the manifest and health calls to keep working. */
+export const REQUEST_LIMIT = 70_000;
+
 /** R2 bills on the 6th: the script's BILLING_RESET_DAY. */
 export const BILLING_RESET_DAY = 6;
 

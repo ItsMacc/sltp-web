@@ -55,11 +55,11 @@ OPS_FOOTER_HTML = (
 
 
 # -------- Admin Recipient --------
-# Ops mail goes to ADMIN_EMAIL when set, otherwise to SENDER_EMAIL. The Gmail
-# account that authenticates the send is the one address we know exists, so an
-# unconfigured install mails itself instead of dropping the report.
+# Ops mail goes to ADMIN_EMAIL when set, otherwise to FROM_EMAIL. The sender
+# address is the one address we know exists, so an unconfigured install mails
+# itself instead of dropping the report.
 def admin_recipient() -> str | None:
-    for name in ("ADMIN_EMAIL", "SENDER_EMAIL"):
+    for name in ("ADMIN_EMAIL", "FROM_EMAIL"):
         value = (os.environ.get(name) or "").strip()
         if value:
             return value
@@ -67,24 +67,43 @@ def admin_recipient() -> str | None:
 
 
 # -------- Low-Level Sender --------
-# Send an HTML email over Gmail SMTP; returns (success, error_message).
-def send_email(receiver: str, subject: str, html: str) -> tuple[bool, str | None]:
-    sender_email = os.environ.get("SENDER_EMAIL")
-    app_password = os.environ.get("APP_PASSWORD")
+# Send an HTML email over the configured SMTP relay; returns
+# (success, error_message).
+#
+# The relay authenticates SMTP_USER, not the From address, so FROM_EMAIL only
+# has to be a verified sender on the domain. Brevo is what runs today; the
+# same names work for any relay without touching this file.
+def smtp_settings() -> tuple[str, int, str, str] | None:
+    host = (os.environ.get("SMTP_HOST") or "").strip()
+    user = (os.environ.get("SMTP_USER") or "").strip()
+    password = (os.environ.get("SMTP_PASS") or "").strip()
+    if not (host and user and password):
+        return None
+    try:
+        port = int(os.environ.get("SMTP_PORT") or 587)
+    except ValueError:
+        port = 587
+    return host, port, user, password
 
-    if not sender_email or not app_password:
-        return False, "Missing SENDER_EMAIL or APP_PASSWORD in .env"
+
+def send_email(receiver: str, subject: str, html: str) -> tuple[bool, str | None]:
+    settings = smtp_settings()
+    if settings is None:
+        return False, "Missing SMTP_HOST, SMTP_USER or SMTP_PASS in .env"
+    host, port, user, password = settings
+    sender_email = (os.environ.get("FROM_EMAIL") or "mail@sltp-app.com").strip()
 
     message = MIMEMultipart("alternative")
     message["From"] = f"{SENDER_NAME} <{sender_email}>"
     message["To"] = receiver
     message["Subject"] = subject
+    message["Reply-To"] = sender_email
     message.attach(MIMEText(html, "html"))
 
     try:
-        with smtplib.SMTP("smtp.gmail.com", 587) as server:
+        with smtplib.SMTP(host, port, timeout=20) as server:
             server.starttls()
-            server.login(sender_email, app_password)
+            server.login(user, password)
             server.sendmail(sender_email, receiver, message.as_string())
         return True, None
     except Exception as e:

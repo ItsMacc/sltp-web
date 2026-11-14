@@ -13,6 +13,7 @@ import RadioGroup from '../ui/RadioGroup';
 import { LoaderInline, LoaderOverlay } from '../ui/Loader';
 import SuccessToast from '../ui/SuccessToast';
 import ConfirmDeleteDialog from '../ui/ConfirmDeleteDialog';
+import { SUPPORT_EMAIL } from '../data/contact';
 import { Check, Copy } from 'lucide-react';
 import { listApiKeys, createApiKey, revokeApiKey, type ApiKeySummary } from '../../lib/api';
 import {
@@ -473,6 +474,10 @@ export default function SettingsPage({ userId, userEmail, initialName, onProfile
                   <label className="st-settings-label is-danger">Danger Zone</label>
                   <span className="st-settings-hint is-warning">
                     Permanently delete your account and all associated configuration data.
+                  </span>
+                  <span className="st-settings-hint">
+                    Not sure it is what you want? Write to{' '}
+                    <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a> first.
                   </span>
                   <Button
                     variant="secondary"

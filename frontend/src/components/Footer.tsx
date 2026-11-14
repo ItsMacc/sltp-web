@@ -1,5 +1,6 @@
 // Footer.tsx — Site footer: nav columns, legal links, disclaimer
 import type { LegalPageKind } from '../pages/LegalPage';
+import { MAIL_EMAIL, SUPPORT_EMAIL } from '../data/contact';
 import './Footer.css';
 
 interface FooterProps {
@@ -32,8 +33,11 @@ export default function Footer({ activeTab, onNavigate, onLegalPage }: FooterPro
               A research-first platform for market analysis, strategy building, and informed
               investing.
             </p>
-            <a className="st-footer-contact" href="mailto:legal.sltp@gmail.com">
-              legal.sltp@gmail.com
+            <a className="st-footer-contact" href={`mailto:${MAIL_EMAIL}`}>
+              {MAIL_EMAIL}
+            </a>
+            <a className="st-footer-contact" href={`mailto:${SUPPORT_EMAIL}`}>
+              {SUPPORT_EMAIL}
             </a>
           </div>
 

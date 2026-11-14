@@ -9,11 +9,13 @@
 // behind the sign-in gate, so a missing session means it expired mid-visit:
 // the caller gets a plain message it can show instead of a silent empty list.
 //
-// Reads come from a browser snapshot first. Turso charges a read for every
-// workspace list and every project tree, and the Lab re-reads both on each
-// visit even when nothing changed, so the last answer is kept per account and
-// served until it is a few minutes old. Every write drops the snapshots it
-// invalidates, which is what keeps the copy honest.
+// Reads use a five-minute browser snapshot to save Turso reads, with one
+// exception: the first seconds after a page load always ask the server. That
+// is the reload case — create a workspace on the laptop, refresh the phone,
+// see it immediately — while moving around inside the Lab still reuses the
+// snapshot. Writes never wait for any of this: every create, save and delete
+// is an awaited Turso round trip, and the snapshot it invalidates is dropped
+// in the same call.
 
 import { supabase } from '../../lib/supabase';
 import { dropCachedBacktest, renameCachedBacktest } from './backtestCache';
@@ -54,14 +56,14 @@ export interface LabProjectFiles {
 }
 
 // -------- Snapshot cache --------
-// Ten minutes is long enough to cover the reload-and-look-again loop the Lab
-// invites, and short enough that a second machine is never far behind.
-const CACHE_TTL_MS = 10 * 60 * 1000;
 // localStorage is a few megabytes in every browser. A project tree near that
 // size is not worth caching: it would evict everything else and could fail
 // the write anyway, so it is simply not stored.
 const MAX_ENTRY_BYTES = 1_500_000;
 const CACHE_PREFIX = 'st_lab_v1';
+const CACHE_TTL_MS = 5 * 60 * 1000;
+/** A page that just loaded must not answer from the previous page's snapshot. */
+const FRESH_LOAD_MS = 10_000;
 
 interface CacheEntry<T> {
   savedAt: number;
@@ -70,6 +72,18 @@ interface CacheEntry<T> {
 
 function cacheKey(userId: string, part: string): string {
   return `${CACHE_PREFIX}:${userId}:${part}`;
+}
+
+function freshLoad(): boolean {
+  return typeof performance !== 'undefined' && performance.now() < FRESH_LOAD_MS;
+}
+
+/** The snapshot if it is younger than the TTL, and not from a previous page. */
+function cachedNow<T>(key: string): T | null {
+  if (freshLoad()) return null;
+  const entry = readEntry<T>(key);
+  if (!entry) return null;
+  return Date.now() - entry.savedAt < CACHE_TTL_MS ? entry.data : null;
 }
 
 function readEntry<T>(key: string): CacheEntry<T> | null {
@@ -100,10 +114,6 @@ function dropEntry(key: string): void {
   } catch {
     // Nothing to do: the next read simply misses.
   }
-}
-
-function isFresh(entry: CacheEntry<unknown> | null): boolean {
-  return Boolean(entry) && Date.now() - (entry as CacheEntry<unknown>).savedAt < CACHE_TTL_MS;
 }
 
 // Drops every Lab snapshot for the signed-in account, for a hard refresh.
@@ -142,12 +152,19 @@ async function dropProject(userId: string, projectId: string): Promise<void> {
 export async function listLabWorkspaces(): Promise<LabWorkspace[]> {
   const { token, userId } = await session();
   const key = cacheKey(userId, 'workspaces');
-  const cached = readEntry<LabWorkspace[]>(key);
-  if (isFresh(cached)) return (cached as CacheEntry<LabWorkspace[]>).data;
-
-  const data = await apiListLabWorkspaces(token);
-  writeEntry(key, data);
-  return data;
+  const cached = cachedNow<LabWorkspace[]>(key);
+  if (cached) return cached;
+  try {
+    const data = await apiListLabWorkspaces(token);
+    writeEntry(key, data);
+    return data;
+  } catch (err) {
+    // Offline or the API is down: the last answer beats an empty screen, but
+    // only when there is nothing current to show.
+    const fallback = readEntry<LabWorkspace[]>(key);
+    if (fallback) return fallback.data;
+    throw err;
+  }
 }
 
 export async function createLabWorkspace(input: {
@@ -201,12 +218,17 @@ export async function deleteLabProject(projectId: string): Promise<void> {
 export async function getLabProjectFiles(projectId: string): Promise<LabProjectFiles> {
   const { token, userId } = await session();
   const key = cacheKey(userId, `project:${projectId}`);
-  const cached = readEntry<LabProjectFiles>(key);
-  if (isFresh(cached)) return (cached as CacheEntry<LabProjectFiles>).data;
-
-  const data = await apiGetLabProjectFiles(token, projectId);
-  writeEntry(key, data);
-  return data;
+  const cached = cachedNow<LabProjectFiles>(key);
+  if (cached) return cached;
+  try {
+    const data = await apiGetLabProjectFiles(token, projectId);
+    writeEntry(key, data);
+    return data;
+  } catch (err) {
+    const fallback = readEntry<LabProjectFiles>(key);
+    if (fallback) return fallback.data;
+    throw err;
+  }
 }
 
 // The editor autosaves through this. The cached tree is dropped rather than
