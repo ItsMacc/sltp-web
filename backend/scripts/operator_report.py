@@ -30,6 +30,7 @@ import requests
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app.config import SUPABASE_URL, SUPABASE_SERVICE_KEY, SUPABASE_TIMEOUT, service_headers
+from app.health import collect_health
 from app.notify.mailer import admin_recipient, ops_report_email
 from app.turso import userdata
 from app.users import store
@@ -157,6 +158,7 @@ def build_report() -> dict[str, Any]:
         "usage": usage_summary(),
         "deletions": deletion_summary(now),
         "followed_strategies": followed_strategies(),
+        "health": collect_health(),
     }
 
 
@@ -194,6 +196,13 @@ def format_text(report: dict[str, Any]) -> str:
     if followed:
         lines += ["", "Followed strategies"]
         lines += [f"  {sid}: {n}" for sid, n in followed]
+
+    health = report.get("health") or []
+    if health:
+        lines += ["", "Health"]
+        for item in health:
+            status = "ok" if item.get("ok") else "FAIL"
+            lines.append(f"  {item.get('name', ''):<10} {status:<4} {item.get('detail', '')}")
     return "\n".join(lines)
 
 

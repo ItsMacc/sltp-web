@@ -381,6 +381,18 @@ def ops_report_email(receiver: str, report: dict[str, Any]) -> tuple[bool, str |
         rows = [(sid, str(n), C_TEXT) for sid, n in followed]
         inner += f'<div style="margin-top:20px;">{_panel("Followed strategies", rows)}</div>'
 
+    health = report.get("health") or []
+    if health:
+        rows = [
+            (
+                str(item.get("name", "")),
+                ("OK" if item.get("ok") else "FAIL") + " — " + str(item.get("detail", "")),
+                C_GREEN if item.get("ok") else C_RED,
+            )
+            for item in health
+        ]
+        inner += f'<div style="margin-top:20px;">{_panel("System health", rows)}</div>'
+
     return send_email(receiver, subject, _shell(
         f"Operator brief for {date_str}", "Operator brief", C_ACCENT, inner,
         footer_html=OPS_FOOTER_HTML,
