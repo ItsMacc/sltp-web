@@ -1,7 +1,7 @@
 // ResearchPage.tsx — Price history workspace: ticker list, chart, stats
 //
 // Same page as before the trim, with one change under the hood: bars come
-// from the browser's OPFS market cache (queryMarketData / queryQuotes)
+// from the browser's OPFS market cache (queryMarketDataProgressively / queryQuotes)
 // instead of the Python API server. The Strategies tab stays as a switch
 // with a blank page behind it until strategies are built.
 import {
@@ -25,9 +25,8 @@ import { chartMaxBarsToNumber, readChartMaxBars, type ResearchTimeframe } from '
 import {
   getTickerDirectory,
   IS_MOBILE,
-  queryMarketData,
+  queryMarketDataProgressively,
   queryQuotes,
-  primeEngine,
   type Quote,
   type TickerInfo,
 } from '../store'
@@ -291,14 +290,9 @@ export default function ResearchPage({ initialSettings, initialStrategyId }: Res
   const [quotes, setQuotes] = useState<Record<string, Quote>>({})
   const [quoteLimit, setQuoteLimit] = useState(QUOTE_BATCH)
   const quotesRef = useRef<Record<string, Quote>>({})
-  // The engine warms only here (and the future Lab): never on page load, so
-  // a visit that never runs a strategy never downloads Python. Silent on
-  // purpose — stocks read parquet, not Pyodide, and must never wait on it.
-  // A phone waits until the Strategies tab is actually opened: booting
-  // Pyodide beside a stock chart only costs it bandwidth and memory.
-  useEffect(() => {
-    if (!IS_MOBILE || mode === 'strategies') void primeEngine()
-  }, [mode])
+  // The engine boots on the first actual backtest, never on page load and
+  // never through a silent benchmark run. Stocks read parquet, not Pyodide,
+  // and must never wait on it.
 
   // On phones the list is a sheet over the chart, opened from the search bar.
   const [listOpen, setListOpen] = useState(false)
@@ -354,7 +348,7 @@ export default function ResearchPage({ initialSettings, initialStrategyId }: Res
   }, [])
 
   useEffect(() => {
-    const timer = setTimeout(() => setDebouncedQuery(query), 250)
+    const timer = setTimeout(() => setDebouncedQuery(query), 120)
     return () => clearTimeout(timer)
   }, [query])
 
@@ -424,11 +418,24 @@ export default function ResearchPage({ initialSettings, initialStrategyId }: Res
     if (!selectedTicker || mode !== 'stocks') return
 
     let cancelled = false
+    let painted = false
     const symbol = selectedTicker
     setLoading(true)
     setError(null)
 
-    queryMarketData(symbol, timeframeStart(timeframe))
+    // Paint from the first file that lands (the 2MB tail on a new device),
+    // then extend the same chart as older years arrive. The spinner is gone
+    // the moment there is something to draw.
+    queryMarketDataProgressively(symbol, timeframeStart(timeframe), undefined, (bars) => {
+      if (cancelled || bars.length === 0) return
+      painted = true
+      setStockData({
+        ticker: symbol,
+        name: allTickers.find((item) => item.ticker === symbol)?.name,
+        data: bars,
+      })
+      setLoading(false)
+    })
       .then((bars) => {
         if (cancelled) return
         // OPFS resolves instead of rejecting when a symbol simply has no
@@ -446,7 +453,7 @@ export default function ResearchPage({ initialSettings, initialStrategyId }: Res
         })
       })
       .catch((err: Error) => {
-        if (!cancelled) setError(err.message || 'Something went wrong fetching that ticker.')
+        if (!cancelled && !painted) setError(err.message || 'Something went wrong fetching that ticker.')
       })
       .finally(() => {
         if (!cancelled) setLoading(false)

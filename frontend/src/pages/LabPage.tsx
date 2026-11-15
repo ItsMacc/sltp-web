@@ -9,6 +9,7 @@ import {
   createLabWorkspace,
   deleteLabWorkspace,
   listLabWorkspaces,
+  prefetchLabProjects,
   type LabWorkspace,
 } from '../lab/store';
 import { getTemplate, type LabTemplateId } from '../lab/templates';
@@ -263,6 +264,16 @@ export default function LabPage({ onNavigate }: LabPageProps) {
     // when the reader comes back with possibly newer file counts.
     if (!urlWorkspaceId || workspaces.length === 0) void loadWorkspaces();
   }, [urlWorkspaceId, loadWorkspaces, workspaces.length]);
+
+  // Warm every project while the reader is still on the Lab home: the file
+  // tree and backtest list land in the snapshot cache before a workspace is
+  // opened, so the editor opens without another API wait.
+  useEffect(() => {
+    const projectIds = workspaces
+      .map((workspace) => workspace.project_id)
+      .filter((id): id is string => Boolean(id));
+    if (projectIds.length > 0) void prefetchLabProjects(projectIds);
+  }, [workspaces]);
 
   const q = query.trim().toLowerCase();
 

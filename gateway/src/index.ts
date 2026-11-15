@@ -226,7 +226,11 @@ async function status(env: Env): Promise<Response> {
 function cacheControl(key: string, version: string): string {
   if (version === 'live') return 'public, max-age=60';
   if (key.endsWith('META/manifest.json')) return 'public, max-age=30';
-  if (key.endsWith('.parquet')) return 'public, max-age=31536000, immutable';
+  // The app keeps its own copy in OPFS and asks for `no-store`; Safari's
+  // website-data cache was still holding every parquet download under the
+  // workers.dev origin (318MB on a phone). The edge cache below is manual,
+  // so telling the browser not to store these costs no gate reads.
+  if (key.endsWith('.parquet')) return 'no-store';
   return 'public, max-age=300';
 }
 

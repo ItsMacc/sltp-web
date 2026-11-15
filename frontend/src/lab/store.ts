@@ -18,7 +18,12 @@
 // in the same call.
 
 import { supabase } from '../../lib/supabase';
-import { dropCachedBacktest, renameCachedBacktest } from './backtestCache';
+import {
+  dropCachedBacktest,
+  readCachedBacktest,
+  renameCachedBacktest,
+  writeCachedBacktest,
+} from './backtestCache';
 import {
   createLabBacktest as apiCreateLabBacktest,
   createLabFile as apiCreateLabFile,
@@ -61,9 +66,11 @@ export interface LabProjectFiles {
 // the write anyway, so it is simply not stored.
 const MAX_ENTRY_BYTES = 1_500_000;
 const CACHE_PREFIX = 'st_lab_v1';
-const CACHE_TTL_MS = 5 * 60 * 1000;
+const CACHE_TTL_MS = 30 * 60 * 1000;
 /** A page that just loaded must not answer from the previous page's snapshot. */
 const FRESH_LOAD_MS = 10_000;
+/** Wall-clock at module load: entries written after this are this visit's. */
+const PAGE_LOAD_WALL = Date.now();
 
 interface CacheEntry<T> {
   savedAt: number;
@@ -78,12 +85,15 @@ function freshLoad(): boolean {
   return typeof performance !== 'undefined' && performance.now() < FRESH_LOAD_MS;
 }
 
-/** The snapshot if it is younger than the TTL, and not from a previous page. */
+/** The snapshot if it is younger than the TTL, and not from a previous page.
+    A write made during this visit (the Lab prefetch, a save) is always
+    usable, even inside the first seconds after load. */
 function cachedNow<T>(key: string): T | null {
-  if (freshLoad()) return null;
   const entry = readEntry<T>(key);
   if (!entry) return null;
-  return Date.now() - entry.savedAt < CACHE_TTL_MS ? entry.data : null;
+  if (Date.now() - entry.savedAt >= CACHE_TTL_MS) return null;
+  if (freshLoad() && entry.savedAt < PAGE_LOAD_WALL) return null;
+  return entry.data;
 }
 
 function readEntry<T>(key: string): CacheEntry<T> | null {
@@ -304,8 +314,38 @@ export async function importLabFiles(
 }
 
 // -------- Backtests --------
+// The summary list is small and read every time the backtests window opens;
+// one snapshot per project keeps that instant. A report itself is cached in
+// OPFS by backtestCache.ts.
+function backtestListKey(userId: string, projectId: string): string {
+  return cacheKey(userId, `backtests:${projectId}`);
+}
+
+function dropBacktestLists(userId: string): void {
+  try {
+    const prefix = `${CACHE_PREFIX}:${userId}:backtests:`;
+    for (const key of Object.keys(localStorage)) {
+      if (key.startsWith(prefix)) localStorage.removeItem(key);
+    }
+  } catch {
+    // Best-effort, like every other cache write here.
+  }
+}
+
 export async function listLabBacktests(projectId: string): Promise<LabBacktestSummary[]> {
-  return apiListLabBacktests(await token(), projectId);
+  const { token, userId } = await session();
+  const key = backtestListKey(userId, projectId);
+  const cached = cachedNow<LabBacktestSummary[]>(key);
+  if (cached) return cached;
+  try {
+    const data = await apiListLabBacktests(token, projectId);
+    writeEntry(key, data);
+    return data;
+  } catch (err) {
+    const fallback = readEntry<LabBacktestSummary[]>(key);
+    if (fallback) return fallback.data;
+    throw err;
+  }
 }
 
 export async function createLabBacktest(
@@ -313,30 +353,65 @@ export async function createLabBacktest(
   payload: unknown,
   name?: string,
 ): Promise<LabBacktestSummary> {
-  return apiCreateLabBacktest(await token(), projectId, payload, name);
+  const { token, userId } = await session();
+  const created = await apiCreateLabBacktest(token, projectId, payload, name);
+  dropEntry(backtestListKey(userId, projectId));
+  return created;
 }
 
 export async function getLabBacktest(backtestId: string): Promise<LabBacktestRecord> {
-  return apiGetLabBacktest(await token(), backtestId);
+  const { token } = await session();
+  return apiGetLabBacktest(token, backtestId);
 }
 
 export async function renameLabBacktest(
   backtestId: string,
   name: string,
 ): Promise<LabBacktestSummary> {
-  const renamed = await apiRenameLabBacktest(await token(), backtestId, name);
+  const { token, userId } = await session();
+  const renamed = await apiRenameLabBacktest(token, backtestId, name);
   await renameCachedBacktest(backtestId, renamed.name);
+  dropBacktestLists(userId);
   return renamed;
 }
 
 export async function deleteLabBacktest(backtestId: string): Promise<void> {
-  await apiDeleteLabBacktest(await token(), backtestId);
+  const { token, userId } = await session();
+  await apiDeleteLabBacktest(token, backtestId);
   await dropCachedBacktest(backtestId);
+  dropBacktestLists(userId);
 }
 
-// Backtests are read once and rendered from memory, so they keep the plain
-// token helper rather than paying for a user id they do not use.
-async function token(): Promise<string> {
-  const { token: live } = await session();
-  return live;
+// -------- Warm-up --------
+/** Projects already warmed this visit. */
+const prefetched = new Set<string>();
+
+/**
+ * Called when the Lab opens: reads every project's file tree and backtest
+ * list once, in the background, so opening a workspace later is a snapshot
+ * hit instead of a fresh API wait. Failures are silent — a project the
+ * reader cannot load will still show its own error when opened.
+ */
+export async function prefetchLabProjects(projectIds: string[]): Promise<void> {
+  const queue = projectIds.filter((id) => id && !prefetched.has(id));
+  for (const id of queue) prefetched.add(id);
+  const worker = async (): Promise<void> => {
+    for (;;) {
+      const id = queue.shift();
+      if (!id) return;
+      try {
+        const [, summaries] = await Promise.all([getLabProjectFiles(id), listLabBacktests(id)]);
+        // Reports are immutable and cost an API read each time they are not on
+        // disk. Pull them now, one at a time, so opening one later is local.
+        for (const summary of summaries) {
+          if (await readCachedBacktest(summary.id)) continue;
+          const record = await getLabBacktest(summary.id);
+          await writeCachedBacktest(record);
+        }
+      } catch {
+        // Best-effort warm-up.
+      }
+    }
+  };
+  await Promise.all([worker(), worker()]);
 }

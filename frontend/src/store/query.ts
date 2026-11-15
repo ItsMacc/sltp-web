@@ -2,7 +2,7 @@
 //
 // Chunk choice mirrors the engine's bar_files_for (filename year overlap, so
 // a 5-year chart never touches the 1998 file), then intersects the active
-// sync plan — a phone only ever holds its six newest files, so a wide
+// sync plan — a phone only ever holds its five-year window, so a wide
 // range resolves from what is on disk instead of fetching the archive.
 // Every missing chunk is fetched on demand: a chart with a cold cache still
 // resolves, it just takes the download first. All of the range's chunks
@@ -17,6 +17,7 @@ import type { Bar } from '../components/Chart';
 import {
   bootMarketSync,
   ensureFile,
+  ensureManifest,
   getActivePlan,
   getChunkFile,
   getManifest,
@@ -238,20 +239,29 @@ export interface TickerInfo {
 }
 
 const CATALOG_KEY = 'SYMBOL_DATA/symbol_catalog.parquet';
+let catalogPromise: Promise<TickerInfo[]> | null = null;
 
 /**
- * The tradable ticker directory out of the OPFS catalog sidecar (fetched on
- * first use like any other chunk). Sorted by symbol for a stable list.
+ * The tradable ticker directory out of the OPFS catalog sidecar. This waits
+ * for the manifest only — never for the 30MB priority pair — so the first
+ * search shows suggestions in the time it takes to pull 0.4MB.
  */
 export async function getTickerDirectory(): Promise<TickerInfo[]> {
   if (catalogCache) return catalogCache;
-  await bootMarketSync();
-  await ensureFile(CATALOG_KEY);
-  const file = await getFile(CATALOG_KEY);
-  if (!file) throw new Error('Ticker catalog vanished after download');
-  const data = await runWorker({ kind: 'catalog', file });
-  catalogCache = data.entries ?? [];
-  return catalogCache;
+  if (!catalogPromise) {
+    catalogPromise = (async () => {
+      await ensureManifest();
+      await ensureFile(CATALOG_KEY);
+      const file = await getFile(CATALOG_KEY);
+      if (!file) throw new Error('Ticker catalog vanished after download');
+      const data = await runWorker({ kind: 'catalog', file });
+      catalogCache = data.entries ?? [];
+      return catalogCache;
+    })().finally(() => {
+      catalogPromise = null;
+    });
+  }
+  return catalogPromise;
 }
 
 export interface Quote {
@@ -364,6 +374,52 @@ export function chunkKeysForRange(start?: string, end?: string): string[] {
   return keys.filter((key) => plan.includes(key));
 }
 
+/**
+ * Every bar for one ticker over [start, end], painted as it lands.
+ *
+ * The recent tail is awaited first (2MB, and the one file a brand-new device
+ * is guaranteed to have), then the remaining eras download and decode in
+ * parallel. `onPartial` fires after each file merges, so a chart appears from
+ * one file and grows leftwards instead of waiting for all five years.
+ */
+export async function queryMarketDataProgressively(
+  ticker: string,
+  start: string | undefined,
+  end: string | undefined,
+  onPartial?: (bars: Bar[]) => void,
+): Promise<Bar[]> {
+  const symbol = ticker.trim().toUpperCase();
+  await ensureManifest();
+  const seen = new Set<string>();
+  const out: Bar[] = [];
+
+  const merge = (rows: Bar[]): void => {
+    let added = false;
+    for (const row of rows) {
+      if (seen.has(row.date)) continue;
+      seen.add(row.date);
+      out.push(row);
+      added = true;
+    }
+    if (!added) return;
+    out.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+    onPartial?.(out);
+  };
+
+  const keys = chunkKeysForRange(start, end);
+  if (keys.length === 0) return out;
+
+  // Newest first: the tail paints the opening chart, then every older era
+  // joins it. A symbol missing from the tail simply waits for its first era.
+  merge(await queryFile(keys[0]!, symbol, start, end));
+  await Promise.all(
+    keys.slice(1).map(async (key) => {
+      merge(await queryFile(key, symbol, start, end));
+    }),
+  );
+  return out;
+}
+
 /** Every bar for one ticker over [start, end]. Open ends fetch everything
     the plan holds — on a phone that is the recent pair, never 28 years. */
 export async function queryMarketData(
@@ -371,24 +427,5 @@ export async function queryMarketData(
   start?: string,
   end?: string,
 ): Promise<Bar[]> {
-  const symbol = ticker.trim().toUpperCase();
-  const seen = new Set<string>();
-  const out: Bar[] = [];
-  // Every file decodes in the pool at once (bounded by its two workers);
-  // Promise.all preserves key order, so the newest file still wins overlap
-  // dates exactly as in the old sequential walk.
-  const perFile = await Promise.all(
-    chunkKeysForRange(start, end).map((key) => queryFile(key, symbol, start, end)),
-  );
-  for (const rows of perFile) {
-    // Year files and the `recent` tail overlap by a few sessions.
-    for (const row of rows) {
-      if (!seen.has(row.date)) {
-        seen.add(row.date);
-        out.push(row);
-      }
-    }
-  }
-  out.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
-  return out;
+  return queryMarketDataProgressively(ticker, start, end);
 }

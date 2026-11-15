@@ -12,8 +12,20 @@ const DIR_NAME = 'sltp-market';
 /** Records which dataset version the cached files were downloaded against. */
 const VERSION_NAME = '__version.txt';
 
+/**
+ * Browsers without OPFS (older Android WebViews, some in-app browsers) still
+ * need charts. They keep the current session's files in memory instead: no
+ * persistence across reloads, but a chart that used to fail now downloads the
+ * one file it needs and draws it.
+ */
+const memoryFiles = new Map<string, Blob>();
+
 export function opfsSupported(): boolean {
   return typeof navigator !== 'undefined' && !!navigator.storage?.getDirectory;
+}
+
+function memoryOnly(): boolean {
+  return !opfsSupported();
 }
 
 /**
@@ -81,6 +93,8 @@ async function parentFor(
 
 /** True when this exact path is already on disk. */
 export async function hasFile(path: string): Promise<boolean> {
+  if (memoryFiles.has(path)) return true;
+  if (memoryOnly()) return false;
   try {
     const { dir, name } = await parentFor(path, false);
     await dir.getFileHandle(name);
@@ -99,6 +113,11 @@ export async function fileSize(path: string): Promise<number | null> {
 
 /** The cached file, or null on a miss. The caller owns the File. */
 export async function getFile(path: string): Promise<File | null> {
+  const inMemory = memoryFiles.get(path);
+  if (inMemory) {
+    return new File([inMemory], path.split('/').pop() || path, { type: inMemory.type });
+  }
+  if (memoryOnly()) return null;
   try {
     const { dir, name } = await parentFor(path, false);
     const handle = await dir.getFileHandle(name);
@@ -111,7 +130,12 @@ export async function getFile(path: string): Promise<File | null> {
 /** Every file path under a directory, relative to it (`a.parquet`,
     `x/y.bin`). A miss means nothing cached yet, so it reads as empty. */
 export async function listFiles(path: string): Promise<string[]> {
-  const out: string[] = [];
+  const prefix = path.replace(/\/$/, '') + '/';
+  const inMemory = [...memoryFiles.keys()]
+    .filter((key) => key.startsWith(prefix))
+    .map((key) => key.slice(prefix.length));
+  if (memoryOnly()) return inMemory;
+  const out: string[] = [...inMemory];
   const walk = async (dir: FileSystemDirectoryHandle, prefix: string): Promise<void> => {
     for await (const entry of dir.values()) {
       if (entry.kind === 'file') out.push(prefix + entry.name);
@@ -133,6 +157,10 @@ export async function listFiles(path: string): Promise<string[]> {
 
 /** Stores (or replaces) one file. Writes are atomic per file handle. */
 export async function putFile(path: string, data: Blob): Promise<void> {
+  if (memoryOnly()) {
+    memoryFiles.set(path, data);
+    return;
+  }
   const { dir, name } = await parentFor(path, true);
   const handle = await dir.getFileHandle(name, { create: true });
   const writable = await handle.createWritable();
@@ -152,11 +180,37 @@ export async function putFile(path: string, data: Blob): Promise<void> {
  * a quota error. Writing each received chunk keeps peak memory at one chunk,
  * and the file only appears when close() succeeds.
  */
+/** Last-resort store when OPFS refuses a write (full disk, locked-down
+    WebView). The file lives for this session only, which is enough to draw
+    the chart the reader asked for. */
+export async function putFileInMemory(path: string, data: Blob): Promise<void> {
+  memoryFiles.set(path, data);
+}
+
 export async function putFileStream(
   path: string,
   body: ReadableStream<Uint8Array>,
   onChunk?: (bytes: number) => void,
 ): Promise<void> {
+  if (memoryOnly()) {
+    const reader = body.getReader();
+    const parts: BlobPart[] = [];
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const bytes = new Uint8Array(value.byteLength);
+        bytes.set(value);
+        parts.push(bytes);
+        onChunk?.(bytes.byteLength);
+      }
+      memoryFiles.set(path, new Blob(parts));
+    } catch (error) {
+      memoryFiles.delete(path);
+      throw error;
+    }
+    return;
+  }
   const { dir, name } = await parentFor(path, true);
   const handle = await dir.getFileHandle(name, { create: true });
   const writable = await handle.createWritable();
@@ -181,6 +235,8 @@ export async function putFileStream(
 
 /** Removes one file. A miss is fine — sync treats it as "fetch again". */
 export async function deleteFile(path: string): Promise<void> {
+  memoryFiles.delete(path);
+  if (memoryOnly()) return;
   try {
     const { dir, name } = await parentFor(path, false);
     await dir.removeEntry(name);
@@ -191,6 +247,13 @@ export async function deleteFile(path: string): Promise<void> {
 
 /** Removes a directory and everything under it. A miss is fine. */
 export async function removeDir(path: string): Promise<void> {
+  if (memoryOnly()) {
+    const prefix = path.replace(/\/$/, '') + '/';
+    for (const key of [...memoryFiles.keys()]) {
+      if (key.startsWith(prefix)) memoryFiles.delete(key);
+    }
+    return;
+  }
   try {
     const parts = path.split('/').filter(Boolean);
     const name = parts.pop() as string;

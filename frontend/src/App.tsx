@@ -97,10 +97,10 @@ export default function App() {
     }
 
     setLegalPage(null);
-    // The Lab, Watchlist and Settings all hold data that belongs to an
-    // account, so a signed-out visitor gets the sign-up card instead of the
-    // page, whatever the address bar says.
-    const needsAccount = route.tab === 'settings' || route.tab === 'lab' || route.tab === 'watchlist';
+    // The Lab and Settings hold data that belongs to an account, so a
+    // signed-out visitor gets the sign-up card instead of the page. The
+    // Watchlist is readable signed out: it is market data, not account data.
+    const needsAccount = route.tab === 'settings' || route.tab === 'lab';
     const gated = needsAccount && !userRef.current?.id;
 
     setActiveTab(route.tab);
@@ -109,9 +109,7 @@ export default function App() {
       setAuthNotice(
         route.tab === 'lab'
           ? 'Create an account to open the Lab. Your projects are saved to it.'
-          : route.tab === 'watchlist'
-            ? 'Create an account to keep a watchlist of your own.'
-            : 'You must be logged in to use these features',
+          : 'You must be logged in to use these features',
       );
       return;
     }
