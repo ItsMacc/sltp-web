@@ -76,17 +76,56 @@ def register_strategy(key, classname, source):
     _STRATEGIES[key] = namespace[classname]
 
 
+def _install_shared_bulk_cache():
+    # Every large strategy ranks the same US universe. sltp keys its bulk
+    # cache by the exact ticker list, so Adaptive Momentum, Minimum
+    # Volatility and Mean Reversion each kept their own full decode. Two of
+    # those dictionaries are enough to push a phone WebView over its memory
+    # ceiling on the third run. Read one canonical universe and hand each
+    # strategy only the names it asked for; the cache stays warm across
+    # strategies and Pyodide only holds one copy of the bars.
+    from sltp.data import market_data_service as service
+
+    if getattr(service, "_sltp_shared_bulk", False):
+        return
+
+    original = service._bulk_histories
+
+    def shared_bulk(symbols, start, end):
+        if len(symbols) <= service.SYMBOL_CACHE_LIMIT:
+            return original(symbols, start, end)
+        try:
+            universe = service.get_all_tickers()
+            histories = original(universe, start, end)
+        except Exception:
+            # The canonical read is an optimisation. If the catalog is
+            # unavailable, let the engine take its normal path.
+            return original(symbols, start, end)
+        return {symbol: histories[symbol] for symbol in symbols if symbol in histories}
+
+    service._bulk_histories = shared_bulk
+    service.BULK_CACHE_LIMIT = 1
+    service._sltp_shared_bulk = True
+
+
 def run_strategy(key, start, end):
     from sltp.backtesting import Backtester
     from sltp.backtesting import backtester as _backtester
     from sltp.data import market_data_service as _market
     from sltp.web import to_jsonable
 
+    _install_shared_bulk_cache()
+
     # Time the bar reads. The backtester imported _get_histories by name, so
     # both module globals are patched; the timer is restored afterwards so a
     # failed run cannot leave the engine instrumented.
     _IO_STATS["io_seconds"] = 0.0
     _IO_STATS["io_calls"] = 0
+    # These counters used to survive the boot fetch, so every warm run still
+    # reported the first download. Reset them with the bar-read timer.
+    _BRIDGE_STATS["seconds"] = 0.0
+    _BRIDGE_STATS["bytes"] = 0
+    _BRIDGE_STATS["files"] = 0
     _original_backtester = _backtester._get_histories
     _original_market = getattr(_market, "_get_histories", None)
 

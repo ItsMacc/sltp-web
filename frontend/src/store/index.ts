@@ -2,7 +2,7 @@
 //
 // OPFS is the browser's ~/.sltp/cache: era files download once per dataset
 // version and are read locally afterwards. sync owns the background
-// sequence and the plan (full history on desktop, the recent pair on
+// sequence and the plan (full history on desktop, the five-year window on
 // phones), query answers one ticker out of the cache, and useMarketSyncStatus
 // paints progress anywhere. pool runs the parquet decodes off the main
 // thread; pyodide warms the strategy engine only when a page asks for it.
@@ -20,6 +20,7 @@ export {
 export type { SyncPhase, SyncPlan, SyncStatus } from './sync';
 export {
   queryMarketData,
+  queryMarketDataProgressively,
   queryFile,
   queryQuotes,
   getTickerDirectory,
@@ -29,7 +30,6 @@ export type { Quote, TickerInfo } from './query';
 export { isMobileDevice, IS_MOBILE, MOBILE_HISTORY_START } from './device';
 export {
   warmEngine,
-  primeEngine,
   useEngineStatus,
   getEngineStatus,
   runStrategy,

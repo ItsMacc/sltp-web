@@ -1,16 +1,19 @@
 // pyodide.ts — the in-browser strategy engine, loaded only when needed.
 //
-// Nothing here runs at page load. The first warmEngine call (today: the
-// Research page mount on desktop) starts a dedicated worker that boots
-// Pyodide inside itself, so the main thread never downloads Python and the
-// page never janks while the runtime compiles. The worker mounts the OPFS
-// market cache where sltp looks for it and installs the pinned wheels from
-// the OPFS wheel cache, so the second visit has nothing to download.
+// Nothing here runs at page load. The first runStrategy call starts a
+// dedicated worker that boots Pyodide inside itself, so the main thread never
+// downloads Python and the page never janks while the runtime compiles. The
+// worker mounts the OPFS market cache where sltp looks for it and installs the
+// pinned wheels from the OPFS wheel cache, so the second visit has nothing to
+// download.
 //
-// Phones never warm: strategy runs stay a desktop feature, and a warm
-// would spend a phone plan on megabytes nothing can use yet. The status
-// store drives the loading screen — first run shows it, later runs skip
-// straight to the backtest.
+// There is deliberately no silent benchmark run. A tiny SPY run warmed the
+// Python import path but not the five-year universe the real strategies
+// decode, so it cost a startup run without removing the first real run's
+// wait. The run-progress panel tells the reader that wait is expected.
+//
+// The status store drives the loading screen — first run shows it, later runs
+// skip straight to the backtest.
 //
 // User-written strategies stay out: only the registry below (the same five
 // sources as backend/strategies) is ever exec'd. The Lab's code runs come
@@ -330,40 +333,7 @@ export async function runStrategy(
 }
 
 /** For tests and sign-out cleanup: forget the warm so the next call reruns. */
-/**
- * One tiny silent run right after the engine is ready.
- *
- * The first real backtest was slow because it paid for two things that are
- * not the strategy: Python's import/compile paths for pandas and pyarrow, and
- * the year file's first read from OPFS. A seven-day benchmark run warms both,
- * costs a few seconds once, and nobody sees it. Best effort: a failure here
- * must never surface anywhere.
- */
-let primed = false;
-
-export function primeEngine(): Promise<void> {
-  if (primed) return Promise.resolve();
-  primed = true;
-  return warmEngine()
-    .then(async (warmed) => {
-      if (warmed.phase !== 'ready') return;
-      const end = new Date();
-      const start = new Date(end.getTime() - 7 * 24 * 60 * 60 * 1000);
-      const iso = (date: Date) => date.toISOString().slice(0, 10);
-      await callWorker('run', {
-        key: ENGINE_STRATEGIES[0]!.id,
-        start: iso(start),
-        end: iso(end),
-      });
-    })
-    .catch(() => {
-      /* warming is an optimisation, not a feature */
-    });
-}
-
-/** For tests and sign-out cleanup: forget the warm so the next call reruns. */
 export function resetEngineForTests(): void {
-  primed = false;
   warmPromise = null;
   if (worker) {
     try {
