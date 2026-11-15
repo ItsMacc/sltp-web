@@ -1,22 +1,23 @@
 // sync.ts — the background download sequence plus where files come from.
 //
 // First visit: check the manifest and fetch the plan (desktop: all 29 year
-// files; phone: the six newest), then on desktop keep going backwards one
-// year at a time. Every later boot reconciles the plan against the manifest
-// by byte count and fetches only what's missing or changed — usually just
-// the `recent` tail after a daily update, never a wholesale re-download.
+// files; phone: the recent tail plus the five-calendar-year window), then on
+// desktop keep going backwards one year at a time. Every later boot reconciles
+// the plan against the manifest by byte count and fetches only what's missing
+// or changed — usually just the `recent` tail after a daily update, never a
+// wholesale re-download.
 // Progress is published to subscribers, so any page can show
 // "downloading…" while charts already paint what has landed.
 //
 // The plan is why "N of M files" always reads true: totalFiles counts the
 // plan's bars, and loadedFiles can only ever hold plan keys (plus nothing
-// else — sidecars ride along but are never counted). A phone shows 6 of 6,
-// a desktop 30 of 30 (29 years plus the tail), and neither can drift apart
-// again.
+// else — sidecars ride along but are never counted). A phone shows 7 of 7
+// (the tail plus six calendar years), a desktop 30 of 30 (29 years plus the
+// tail), and neither can drift apart again.
 //
 // Cost model, measured Nov 2026: the desktop priority pair (tail + current
 // year) is ~28MB (~a couple of seconds on a fast link) and the full set
-// ~389MB; the phone plan (tail + 2022-2026) is ~118MB. Reads stay inside the
+// ~389MB; the phone plan (tail plus the five-year window) is smaller. Reads stay inside the
 // bucket's free Class B allowance because every file downloads once per
 // version and is read from disk afterwards.
 //
@@ -27,15 +28,17 @@
 // file knows about that.
 
 import { useSyncExternalStore } from 'react';
-import { IS_MOBILE, MOBILE_PLAN_CHUNKS } from './device';
+import { IS_MOBILE, MOBILE_HISTORY_START } from './device';
 import { writeWithSyncAccess } from './opfsWrite';
 import {
   deleteFile,
   fileSize,
+  removeDir,
   getFile,
   hasFile,
   listFiles,
   opfsSupported,
+  putFileInMemory,
   putFileStream,
   readVersion,
   requestPersistentStorage,
@@ -189,17 +192,26 @@ const CATALOG_KEY = 'SYMBOL_DATA/symbol_catalog.parquet';
 
 /**
  * The chunk keys this browser plans to hold, newest first. Phones keep the
- * six newest (tail + five years, ~2022 on); desktops everything.
+ * recent tail plus every year file that reaches their five-calendar-year
+ * floor; desktops keep everything. Filtering by year rather than by a fixed
+ * count is what makes the oldest file fall out on New Year's Day without a
+ * data-version change.
  * Sidecars are outside the plan — they always download with the priority pair.
  */
 export function planKeys(files: ManifestFile[]): string[] {
   const ordered = newestFirst(barKeys(files));
-  return IS_MOBILE ? ordered.slice(0, MOBILE_PLAN_CHUNKS) : ordered;
+  if (!IS_MOBILE) return ordered;
+  const floorYear = Number(MOBILE_HISTORY_START.slice(0, 4));
+  return ordered.filter((key) => {
+    const range = chunkRange(key);
+    if (!range) return true; // the recent tail
+    return range[1] >= floorYear;
+  });
 }
 
 /** The active plan's keys (null until the first manifest lands). Queries
     intersect their chunk choice with this, so a phone never fetches outside
-    its two files and a desktop never fetches the actions sidecar as bars. */
+    its five-year plan and a desktop never fetches the actions sidecar as bars. */
 let activePlan: string[] | null = null;
 
 export function getActivePlan(): string[] | null {
@@ -277,6 +289,7 @@ function isMetered(): boolean {
 }
 
 let manifestCache: Manifest | null = null;
+let manifestPromise: Promise<Manifest> | null = null;
 let bootPromise: Promise<void> | null = null;
 /** Keys already counted in bytesTotal (denominator counts each file once). */
 const counted = new Set<string>();
@@ -295,6 +308,29 @@ export function getManifest(): Manifest | null {
   return manifestCache;
 }
 
+/**
+ * Fetches only the manifest and installs the plan. Search calls this directly:
+ * the ticker catalog is 0.4MB, and waiting for the 30MB priority pair before
+ * showing suggestions is what made the first search feel frozen.
+ */
+export async function ensureManifest(): Promise<Manifest> {
+  if (manifestCache) return manifestCache;
+  if (!manifestPromise) {
+    manifestPromise = (async () => {
+      const stored = await readVersion();
+      firstSync = stored === null;
+      const manifest = await fetchManifest();
+      manifestCache = manifest;
+      activePlan = planKeys(manifest.files);
+      setStatus({ version: manifest.version, totalFiles: activePlan.length });
+      return manifest;
+    })().finally(() => {
+      manifestPromise = null;
+    });
+  }
+  return manifestPromise;
+}
+
 /** The files a chart needs first: the tail plus the current year file.
     Always inside the plan — on a phone that pair IS the whole plan. */
 function priorityKeys(plan: string[]): string[] {
@@ -306,13 +342,13 @@ function priorityKeys(plan: string[]): string[] {
   return priority.length > 0 ? priority : plan.slice(0, 1);
 }
 
-/** Two downloads at a time. The plan used to fetch one file after another,
-    which left the link idle while each 28MB chunk was written to OPFS; a
-    second lane closes that gap without holding two whole files in memory
-    (each is streamed straight to disk). Phones benefit most: the five-year
-    plan arrives in two parallel streams, and the priority pair no longer
-    waits for the tail to finish before starting the year file. */
-const DOWNLOAD_LANES = 2;
+/** Three downloads at a time. The plan used to fetch one file after another,
+    which left the link idle while each 28MB chunk was written to OPFS. Each
+    stream goes straight to disk, so the lanes cost no extra file memory; the
+    third one keeps a fast link busy when one stream is waiting on a disk
+    write. Phones use two: their plan is only a handful of files, and a third
+    stream buys little on a cellular link. */
+const DOWNLOAD_LANES = IS_MOBILE ? 2 : 3;
 let activeDownloads = 0;
 const downloadWaiters: (() => void)[] = [];
 
@@ -375,7 +411,18 @@ async function storeFile(file: ManifestFile, track = true): Promise<void> {
     if (!(error instanceof DOMException)) throw error;
     setStatus({ bytesLoaded: Math.max(0, status.bytesLoaded - received) });
     received = 0;
-    await writeWithSyncAccess(file.key, url, count);
+    try {
+      await writeWithSyncAccess(file.key, url, count);
+    } catch {
+      // Disk is full or the WebView refuses OPFS outright. Keep this one
+      // file in memory so the chart still opens; the next visit retries.
+      const retry = await fetch(url, { cache: 'no-store' });
+      if (!retry.ok) throw new Error(`Download failed (${retry.status}): ${file.key}`);
+      const blob = await retry.blob();
+      await putFileInMemory(file.key, blob);
+      received = blob.size;
+      setStatus({ bytesLoaded: status.bytesLoaded + blob.size });
+    }
   }
   // Streams rarely report the manifest's exact byte count; reconcile so the
   // bar lands on 100% instead of hovering near it.
@@ -391,11 +438,13 @@ async function storeFile(file: ManifestFile, track = true): Promise<void> {
  */
 export async function ensureFile(key: string): Promise<void> {
   if (await hasFile(key)) return;
-  const manifest = manifestCache;
-  const entry = manifest?.files.find((f) => f.key === key);
+  const manifest = await ensureManifest();
+  const entry = manifest.files.find((f) => f.key === key);
   if (!entry) throw new Error(`Unknown market file: ${key}`);
   countBytes(entry);
-  await downloadFile(entry);
+  // Sidecars (catalog, actions) share this path but are not history files;
+  // only plan keys may move the "N of M" count.
+  await downloadFile(entry, activePlan?.includes(key) ?? false);
 }
 
 /** Starts the background sequence. Safe to call often; runs once per load. */
@@ -412,52 +461,63 @@ function handleBootError(err: unknown): void {
 }
 
 async function runBoot(): Promise<void> {
-  if (!opfsSupported()) {
-    setStatus({ phase: 'degraded', error: 'This browser has no OPFS storage' });
-    return;
-  }
+  const supported = opfsSupported();
 
   // Storage pressure is the only thing that can silently take the cache:
   // ask to be excluded from automatic eviction before downloading hundreds
   // of megabytes the visitor would otherwise fetch again.
-  await requestPersistentStorage();
+  if (supported) await requestPersistentStorage();
 
   const mobile = IS_MOBILE;
   const plan: SyncPlan = mobile ? 'recent' : 'full';
   setStatus({ ...INITIAL, phase: 'checking', plan });
 
-  // No version on disk means no bytes on disk: this device needs the reserve
-  // the gate keeps above its 9M line, so even the manifest is flagged.
-  const stored = await readVersion();
-  firstSync = stored === null;
-
-  const manifest = await fetchManifest();
-  manifestCache = manifest;
+  // The manifest is tiny and every path needs it, including browsers with no
+  // OPFS. Fetch it before deciding how much this device can hold.
+  const manifest = await ensureManifest();
+  const stored = supported ? await readVersion() : null;
   const planList = planKeys(manifest.files);
   activePlan = planList;
+  // No version on disk means no bytes on disk: this device needs the reserve
+  // the gate keeps above its 9M line, so even the manifest is flagged.
+  firstSync = stored === null;
   setStatus({ version: manifest.version, totalFiles: planList.length });
 
+  if (!supported) {
+    setStatus({
+      phase: 'degraded',
+      error: 'This browser has no persistent storage; charts fetch one file at a time into memory',
+    });
+    return;
+  }
+
   counted.clear();
-  if (stored !== manifest.version) {
+  if (stored !== manifest.version || mobile) {
     // A rollover can strand files the new plan no longer holds: a phone
-    // dropping its oldest era in 2028, a renamed chunk. Sweep on-disk bars
-    // outside the plan so disk strictly equals plan + sidecars + wheels.
+    // dropping its oldest era on January 1, a renamed chunk. Sweep on-disk
+    // bars outside the plan so disk strictly equals plan + sidecars + wheels.
     // Sidecars and the catalog get their own byte checks in the priority
-    // pass below; BARS/ and WHEELS/ are version-stamped and self-cleaning.
+    // pass below; WHEELS/ is version-stamped and self-cleaning. The mobile
+    // sweep runs even when the data version is unchanged, because the floor
+    // moves with the calendar.
     // Zero download cost, so this runs on metered links too.
     const planSet = new Set(planList);
     const onDisk = await listFiles('MARKET_DAILY');
-    await Promise.all(
-      onDisk
-        .map((name) => `MARKET_DAILY/${name}`)
-        .filter(
-          (key) =>
-            key.endsWith('.parquet') &&
-            !key.endsWith('market_actions.parquet') &&
-            !planSet.has(key),
-        )
-        .map((key) => deleteFile(key)),
-    );
+    const stale = onDisk
+      .map((name) => `MARKET_DAILY/${name}`)
+      .filter(
+        (key) =>
+          key.endsWith('.parquet') &&
+          !key.endsWith('market_actions.parquet') &&
+          !planSet.has(key),
+      );
+    await Promise.all(stale.map((key) => deleteFile(key)));
+    if (mobile && stale.length > 0) {
+      // The per-ticker chart sidecars are keyed by era. Clearing them is
+      // cheaper than walking year directories and guarantees a dropped era
+      // cannot answer a chart from stale bytes.
+      await removeDir('BARS');
+    }
   }
   // One reconciliation path for every boot, version bump or not. Year files
   // are effectively immutable — a daily update rewrites only the tail (and
@@ -485,6 +545,13 @@ async function runBoot(): Promise<void> {
     .reduce((sum, f) => sum + f.bytes, 0);
   for (const key of present) counted.add(key);
   setStatus({ loadedFiles: newestFirst(present), bytesLoaded: presentBytes });
+
+  // Search is the first thing a new visitor touches. Pull the 0.4MB catalog
+  // beside the priority pair so suggestions never wait for 30MB of bars.
+  const catalogEntry = manifest.files.find((f) => f.key === CATALOG_KEY);
+  if (catalogEntry && !(await hasFile(CATALOG_KEY))) {
+    void ensureFile(CATALOG_KEY).catch(() => undefined);
+  }
 
   // The pair every chart needs: the daily tail plus the current era.
   const priority = priorityKeys(planList);

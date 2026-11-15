@@ -199,9 +199,13 @@
   background-color: var(--bg-surface-hover);
 }
 
-.cal-day-btn:disabled {
+.cal-day-btn[aria-disabled='true'] {
   opacity: 0.25;
   cursor: default;
+}
+
+.cal-day-btn[aria-disabled='true']:hover {
+  background-color: transparent;
 }
 
 .cal-day-btn.outside-month {

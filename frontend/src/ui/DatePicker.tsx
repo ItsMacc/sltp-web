@@ -14,6 +14,10 @@ interface DatePickerProps {
   placeholder?: string
   /** Earliest selectable day (ISO). Phones pass their five-year floor. */
   min?: string
+  /** Called when a day before `min` is tapped. The calendar keeps the day
+      visible but disabled, so the caller can explain the floor instead of
+      leaving a dead cell. */
+  onBlocked?: (dateStr: string) => void
 }
 
 // days: day grid, months: twelve months of one year, years: one page of years.
@@ -46,6 +50,7 @@ export default function DatePicker({
   error,
   placeholder = 'YYYY-MM-DD',
   min = MIN_DATE,
+  onBlocked,
 }: DatePickerProps) {
   // Zero-padded ISO strings compare correctly as text, so the floor is one line.
   const floor = min
@@ -146,6 +151,8 @@ export default function DatePicker({
       const clamped = clampToMin(val)
       setInputValue(clamped)
       onChange(clamped)
+      // After onChange, because the form clears its old error there.
+      if (val < floor) onBlocked?.(val)
       const d = new Date(clamped + 'T00:00:00')
       if (!isNaN(d.getTime())) {
         setCurrentMonth(d.getMonth())
@@ -216,9 +223,13 @@ export default function DatePicker({
   }
 
   const handleSelectDate = (d: number, m: number, y: number) => {
-    const formatted = clampToMin(toDateString(y, m, d))
-    setInputValue(formatted)
-    onChange(formatted)
+    const raw = toDateString(y, m, d)
+    if (raw < floor) {
+      onBlocked?.(raw)
+      return
+    }
+    setInputValue(raw)
+    onChange(raw)
     setView('days')
     setIsOpen(false)
   }
@@ -325,7 +336,8 @@ export default function DatePicker({
                     <button
                       key={idx}
                       type="button"
-                      disabled={belowFloor}
+                      aria-disabled={belowFloor}
+                      tabIndex={belowFloor ? -1 : undefined}
                       className={`cal-day-btn ${!isCurrentMonth ? 'outside-month' : ''} ${isSelected ? 'selected' : ''}`}
                       onClick={() => handleSelectDate(day, month, year)}
                     >
