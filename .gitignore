@@ -31,3 +31,6 @@ dist/
 
 # Regenerated report curves (backend/scripts/regime_report.py)
 backend/scripts/artifacts/
+
+# Vite dependency cache
+frontend/.vite/
