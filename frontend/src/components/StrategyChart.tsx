@@ -237,12 +237,20 @@ export default function StrategyChart({
   const scrollRef = useRef<HTMLDivElement>(null)
   const [width, setWidth] = useState(500)
   const [height] = useState(420)
-  // The scrubber mirrors the horizontal scroll position, so it has to move
-  // when the reader swipes the chart as well as when they drag the thumb.
-  const [scrollLeft, setScrollLeft] = useState(0)
-  const [scrollMax, setScrollMax] = useState(0)
 
-  const [hover, setHover] = useState<{ index: number; x: number; y: number } | null>(null)
+  // A phone gets two explicit ways to use the chart. Scroll keeps the wide
+  // timeline and a sideways swipe; Candle fits the whole run on screen so a
+  // finger can read one day without fighting the horizontal scroll. The
+  // scrubber that used to sit here made the chart look like a scrollbar, so
+  // it is gone; the mode switch says what the gesture does instead.
+  const [chartMode, setChartMode] = useState<'scroll' | 'inspect'>(MOBILE ? 'scroll' : 'inspect')
+  const [tipDismissed, setTipDismissed] = useState(false)
+  const longPressRef = useRef<{ x: number; y: number; timer: number } | null>(null)
+
+  // Only the day is stored. Its x/y are derived from the current plot width,
+  // so switching between the wide and fitted charts keeps the same candle
+  // under the crosshair without a second state update.
+  const [hover, setHover] = useState<{ index: number } | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -281,30 +289,13 @@ export default function StrategyChart({
 
   useLayoutEffect(() => {
     const element = containerRef.current
-    const scrollEl = scrollRef.current
     if (!element) return
-    const update = () => {
-      setWidth(element.clientWidth)
-      if (scrollEl) {
-        setScrollMax(Math.max(0, scrollEl.scrollWidth - scrollEl.clientWidth))
-        setScrollLeft(scrollEl.scrollLeft)
-      }
-    }
-    const onScroll = () => {
-      if (scrollEl) setScrollLeft(scrollEl.scrollLeft)
-    }
+    const update = () => setWidth(element.clientWidth)
     const observer = new ResizeObserver(update)
     observer.observe(element)
-    if (scrollEl) {
-      observer.observe(scrollEl)
-      scrollEl.addEventListener('scroll', onScroll, { passive: true })
-    }
     update()
-    return () => {
-      observer.disconnect()
-      scrollEl?.removeEventListener('scroll', onScroll)
-    }
-  }, [backtestResult])
+    return () => observer.disconnect()
+  }, [backtestResult, chartMode])
 
   const handleCloseErrors = useCallback(() => {
     setInputError(null)
@@ -328,6 +319,7 @@ export default function StrategyChart({
     if (start !== startDate) setStartDate(start)
 
     setInputError(null)
+    setHover(null)
     // The run belongs to the module store, so leaving this page neither
     // cancels it nor forgets it.
     startRunJob(selectedStrategy, start, endDate)
@@ -467,25 +459,83 @@ export default function StrategyChart({
     return items
   }, [rawMetrics])
 
-  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!candles || candles.length === 0) return
-    const rect = e.currentTarget.getBoundingClientRect()
-    const px = e.clientX - rect.left
+  const inspectAt = useCallback(
+    (clientX: number, element: HTMLDivElement) => {
+      if (!candles || candles.length === 0) return
+      const rect = element.getBoundingClientRect()
+      const px = clientX - rect.left
+      if (px < 0 || px > plotWidth) {
+        setHover(null)
+        return
+      }
+      const step = plotWidth / Math.max(1, candles.length - 1)
+      const index = Math.min(candles.length - 1, Math.max(0, Math.round(px / step)))
+      setHover({ index })
+    },
+    [candles, plotWidth],
+  )
 
-    if (px < 0 || px > plotWidth) {
-      setHover(null)
+  const cancelLongPress = useCallback(() => {
+    if (!longPressRef.current) return
+    window.clearTimeout(longPressRef.current.timer)
+    longPressRef.current = null
+  }, [])
+
+  useEffect(() => () => cancelLongPress(), [cancelLongPress])
+
+  const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!MOBILE) return
+    if (chartMode === 'inspect') {
+      inspectAt(event.clientX, event.currentTarget)
       return
     }
+    if (event.pointerType !== 'touch') return
 
+    cancelLongPress()
+    const rect = event.currentTarget.getBoundingClientRect()
+    const px = event.clientX - rect.left
     const step = plotWidth / Math.max(1, candles.length - 1)
     const index = Math.min(candles.length - 1, Math.max(0, Math.round(px / step)))
-    const x = index * step
-    const y = getY(candles[index].close)
+    longPressRef.current = {
+      x: event.clientX,
+      y: event.clientY,
+      timer: window.setTimeout(() => {
+        longPressRef.current = null
+        setHover({ index })
+        setChartMode('inspect')
+      }, 380),
+    }
+  }
 
-    setHover({ index, x, y })
+  const handlePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    const press = longPressRef.current
+    if (
+      press &&
+      (Math.abs(event.clientX - press.x) > 8 || Math.abs(event.clientY - press.y) > 8)
+    ) {
+      cancelLongPress()
+    }
+
+    // In Scroll mode a finger belongs to the horizontal scroll, not the
+    // crosshair. Desktop hover and Candle mode both inspect here.
+    if (MOBILE && chartMode !== 'inspect') return
+    inspectAt(event.clientX, event.currentTarget)
+  }
+
+  const handlePointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
+    cancelLongPress()
+    if (MOBILE && chartMode === 'inspect') {
+      inspectAt(event.clientX, event.currentTarget)
+    }
   }
 
   const hoveredCandle = hover && candles[hover.index] ? candles[hover.index] : null
+  const hoverX = hover ? hover.index * (plotWidth / Math.max(1, candles.length - 1)) : 0
+  const hoverY = hoveredCandle ? getY(hoveredCandle.close) : 0
+  const hoverDayChange =
+    hoveredCandle && hoveredCandle.open !== 0
+      ? ((hoveredCandle.close - hoveredCandle.open) / hoveredCandle.open) * 100
+      : 0
 
   return (
     <div className="strategy-card">
@@ -574,6 +624,11 @@ export default function StrategyChart({
                 }}
                 placeholder="2020-01-01"
                 min={MOBILE ? MOBILE_HISTORY_START : undefined}
+                onBlocked={
+                  MOBILE
+                    ? () => setInputError('You can only run 5 year backtests on mobile.')
+                    : undefined
+                }
               />
 
               <DatePicker
@@ -592,8 +647,8 @@ export default function StrategyChart({
 
           {MOBILE && (
             <p className="strategy-mobile-note">
-              * Backtests on mobiles can only run up to 5 years of data. Switch to
-              desktop to get full access to all data.
+              * Backtests on mobile use the last five years of data, starting
+              {' '}{MOBILE_HISTORY_START}. Switch to desktop for full history.
             </p>
           )}
 
@@ -639,14 +694,73 @@ export default function StrategyChart({
                   )}
                 </div>
 
+                {MOBILE && (
+                  <div className="strategy-chart-mode-row">
+                    <div className="strategy-chart-mode" role="group" aria-label="Chart interaction mode">
+                      <button
+                        type="button"
+                        className={chartMode === 'scroll' ? 'is-active' : ''}
+                        aria-pressed={chartMode === 'scroll'}
+                        onClick={() => {
+                          cancelLongPress()
+                          setChartMode('scroll')
+                          setHover(null)
+                        }}
+                      >
+                        Scroll
+                      </button>
+                      <button
+                        type="button"
+                        className={chartMode === 'inspect' ? 'is-active' : ''}
+                        aria-pressed={chartMode === 'inspect'}
+                        onClick={() => {
+                          cancelLongPress()
+                          setChartMode('inspect')
+                        }}
+                      >
+                        Candle
+                      </button>
+                    </div>
+                    <span className="strategy-chart-mode-note">
+                      {chartMode === 'scroll' ? 'Swipe sideways to move' : 'Drag to read a day'}
+                    </span>
+                  </div>
+                )}
+
                 <div className="strategy-chart-frame">
-                <div className="strategy-chart-scroll" ref={scrollRef}>
+                {MOBILE && !tipDismissed && (
+                  <div className="strategy-chart-tip" role="note">
+                    <span>
+                      {chartMode === 'scroll'
+                        ? 'Tap and hold a candle to inspect it.'
+                        : 'Drag across the chart to read each day.'}
+                    </span>
+                    <button
+                      type="button"
+                      aria-label="Dismiss chart hint"
+                      onClick={() => setTipDismissed(true)}
+                    >
+                      ×
+                    </button>
+                  </div>
+                )}
+                <div
+                  className={`strategy-chart-scroll${chartMode === 'inspect' ? ' is-inspect' : ''}`}
+                  ref={scrollRef}
+                  onScroll={cancelLongPress}
+                >
                   <div
                     ref={containerRef}
                     className="strategy-plot-area"
                     style={{ height }}
+                    onPointerDown={handlePointerDown}
                     onPointerMove={handlePointerMove}
-                    onPointerLeave={() => setHover(null)}
+                    onPointerUp={handlePointerUp}
+                    onPointerCancel={cancelLongPress}
+                    onPointerLeave={() => {
+                      if (!MOBILE) setHover(null)
+                    }}
+                    onContextMenu={(event) => event.preventDefault()}
                   >
                     <svg width={width} height={height}>
                       {gridTicks.map((val) => {
@@ -691,15 +805,34 @@ export default function StrategyChart({
                         );
                       })}
 
-                      {hover && (
+                      {hover && hoveredCandle && (
                         <g pointerEvents="none">
                           <line
-                            x1={hover.x}
-                            x2={hover.x}
+                            x1={hoverX}
+                            x2={hoverX}
                             y1={PADDING_TOP}
                             y2={PADDING_TOP + plotHeight}
                             className="strategy-crosshair"
                           />
+                          <line
+                            x1={0}
+                            x2={plotWidth}
+                            y1={hoverY}
+                            y2={hoverY}
+                            className="strategy-crosshair"
+                          />
+                          <g className="strategy-crosshair-value">
+                            <rect
+                              x={plotWidth + 2}
+                              y={hoverY - 9}
+                              width={AXIS_WIDTH - 6}
+                              height={18}
+                              rx={3}
+                            />
+                            <text x={plotWidth + 8} y={hoverY + 4} className="strategy-axis-label is-active">
+                              {formatNumber(hoveredCandle.close)}
+                            </text>
+                          </g>
                         </g>
                       )}
                     </svg>
@@ -708,37 +841,31 @@ export default function StrategyChart({
                       <div
                         className="strategy-tooltip"
                         style={{
-                          left: Math.min(hover.x + 12, plotWidth - 160),
-                          top: Math.max(PADDING_TOP, hover.y - 65),
+                          left: Math.min(Math.max(8, hoverX + 12), Math.max(8, plotWidth - 160)),
+                          top: Math.max(PADDING_TOP, hoverY - 82),
                         }}
                       >
                         <p className="tooltip-date">{hoveredCandle.date}</p>
-                        <p className="tooltip-value">O: {formatNumber(hoveredCandle.open)}</p>
-                        <p className="tooltip-value">C: {formatNumber(hoveredCandle.close)}</p>
+                        <dl className="tooltip-grid">
+                          <dt>Start</dt>
+                          <dd>{formatNumber(hoveredCandle.open)}</dd>
+                          <dt>End</dt>
+                          <dd className={hoveredCandle.close >= hoveredCandle.open ? 'is-up' : 'is-down'}>
+                            {formatNumber(hoveredCandle.close)}
+                          </dd>
+                          <dt>High</dt>
+                          <dd>{formatNumber(hoveredCandle.high)}</dd>
+                          <dt>Low</dt>
+                          <dd>{formatNumber(hoveredCandle.low)}</dd>
+                          <dt>Day</dt>
+                          <dd className={hoverDayChange >= 0 ? 'is-up' : 'is-down'}>
+                            {hoverDayChange >= 0 ? '+' : ''}{hoverDayChange.toFixed(2)}%
+                          </dd>
+                        </dl>
                       </div>
                     )}
                   </div>
                 </div>
-
-                {MOBILE && scrollMax > 0 && (
-                  <div className="strategy-chart-scrubber">
-                    <input
-                      type="range"
-                      aria-label="Move through the backtest"
-                      min={0}
-                      max={scrollMax}
-                      step={1}
-                      value={Math.min(scrollLeft, scrollMax)}
-                      onChange={(event) => {
-                        const next = Number(event.target.value)
-                        const scrollEl = scrollRef.current
-                        if (!scrollEl || !Number.isFinite(next)) return
-                        scrollEl.scrollLeft = next
-                        setScrollLeft(next)
-                      }}
-                    />
-                  </div>
-                )}
                 </div>
               </article>
 
