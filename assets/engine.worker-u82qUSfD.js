@@ -1,4 +1,4 @@
-(function(){async function e(e){try{let t=new Set(e),n=(await a(`WHEELS`)).filter(e=>e.endsWith(`.whl`)&&!t.has(e));return await Promise.all(n.map(e=>s(`WHEELS/${e}`))),n}catch{return[]}}async function t(e){return(await navigator.storage.getDirectory()).getDirectoryHandle(`sltp-market`,{create:e})}async function n(e,n){let r=e.split(`/`).filter(Boolean),i=r.pop(),a=await t(n);for(let e of r)a=await a.getDirectoryHandle(e,{create:n});return{dir:a,name:i}}async function r(e){try{let{dir:t,name:r}=await n(e,!1);return await t.getFileHandle(r),!0}catch{return!1}}async function i(e){try{let{dir:t,name:r}=await n(e,!1);return(await t.getFileHandle(r)).getFile()}catch{return null}}async function a(e){let n=[],r=async(e,t)=>{for await(let i of e.values())i.kind===`file`?n.push(t+i.name):i.kind===`directory`&&await r(i,`${t}${i.name}/`)};try{let n=e.split(`/`).filter(Boolean),i=await t(!1);for(let e of n)i=await i.getDirectoryHandle(e);await r(i,``)}catch{}return n}async function o(e,t){let{dir:r,name:i}=await n(e,!0),a=await(await r.getFileHandle(i,{create:!0})).createWritable();try{await a.write(t)}finally{await a.close()}}async function s(e){try{let{dir:t,name:r}=await n(e,!1);await t.removeEntry(r)}catch{}}let c=`https://cdn.jsdelivr.net/pyodide/v314.0.7/full/`;async function l(){return(await import(`${c}pyodide.mjs`)).loadPyodide({indexURL:c})}async function u(e,t){let n=await fetch(`https://pypi.org/pypi/${e}/${t}/json`);if(!n.ok)throw Error(`PyPI lookup failed for ${e}==${t} (${n.status})`);let r=await n.json(),i=(r.urls??[]).find(e=>e.filename.endsWith(`.whl`)&&!e.filename.includes(`cp`)&&!e.filename.includes(`pp`))??(r.urls??[]).find(e=>e.filename.endsWith(`.whl`));if(!i)throw Error(`No wheel found for ${e}==${t}`);return{filename:i.filename,url:i.url}}async function d(e,t,n,a){let{filename:s,url:c}=await u(n,a),l=`WHEELS/${s}`,d=!0;if(!await r(l)){d=!1;let e=await fetch(c);if(!e.ok)throw Error(`Wheel download failed for ${s} (${e.status})`);await o(l,new Blob([await e.arrayBuffer()]))}let f=await i(l);if(!f)throw Error(`Wheel vanished after download: ${s}`);return e.FS.writeFile(`/tmp/${s}`,new Uint8Array(await f.arrayBuffer())),await t.install(`emfs:/tmp/${s}`),{cached:d,filename:s}}let f=null,p=!1,m=!1,h=!1;function g(e,t,n,r,i,a){self.postMessage({id:e,kind:t,ok:n,data:r,error:i,...a})}async function _(t){if(p)return m;let n=performance.now(),r=e=>{let t=performance.now();self.postMessage({kind:`progress`,stage:e,ms:Math.round(t-n)}),n=t},i=await l();f=i,r(`python`),await i.loadPackage([`micropip`,`numpy`]),r(`numpy`);try{let e=await(await navigator.storage.getDirectory()).getDirectoryHandle(`sltp-market`,{create:!0});i.FS.mkdirTree(`/home/pyodide/.sltp/cache`),await i.mountNativeFS(`/home/pyodide/.sltp/cache`,e),h=!0}catch{}r(`cache`);let a=i.pyimport(`micropip`),o=await Promise.all([d(i,a,`sltp`,`0.1.351`),d(i,a,`python-dateutil`,`2.9.0`)]);await e(o.map(e=>e.filename)),r(`wheels`),await i.runPythonAsync(`
+(function(){let e=new Map;function t(){return typeof navigator<`u`&&!!navigator.storage?.getDirectory}function n(){return!t()}async function r(e){try{let t=new Set(e),n=(await c(`WHEELS`)).filter(e=>e.endsWith(`.whl`)&&!t.has(e));return await Promise.all(n.map(e=>u(`WHEELS/${e}`))),n}catch{return[]}}async function i(e){return(await navigator.storage.getDirectory()).getDirectoryHandle(`sltp-market`,{create:e})}async function a(e,t){let n=e.split(`/`).filter(Boolean),r=n.pop(),a=await i(t);for(let e of n)a=await a.getDirectoryHandle(e,{create:t});return{dir:a,name:r}}async function o(t){if(e.has(t))return!0;if(n())return!1;try{let{dir:e,name:n}=await a(t,!1);return await e.getFileHandle(n),!0}catch{return!1}}async function s(t){let r=e.get(t);if(r)return new File([r],t.split(`/`).pop()||t,{type:r.type});if(n())return null;try{let{dir:e,name:n}=await a(t,!1);return(await e.getFileHandle(n)).getFile()}catch{return null}}async function c(t){let r=t.replace(/\/$/,``)+`/`,a=[...e.keys()].filter(e=>e.startsWith(r)).map(e=>e.slice(r.length));if(n())return a;let o=[...a],s=async(e,t)=>{for await(let n of e.values())n.kind===`file`?o.push(t+n.name):n.kind===`directory`&&await s(n,`${t}${n.name}/`)};try{let e=t.split(`/`).filter(Boolean),n=await i(!1);for(let t of e)n=await n.getDirectoryHandle(t);await s(n,``)}catch{}return o}async function l(t,r){if(n()){e.set(t,r);return}let{dir:i,name:o}=await a(t,!0),s=await(await i.getFileHandle(o,{create:!0})).createWritable();try{await s.write(r)}finally{await s.close()}}async function u(t){if(e.delete(t),!n())try{let{dir:e,name:n}=await a(t,!1);await e.removeEntry(n)}catch{}}let d=`https://cdn.jsdelivr.net/pyodide/v314.0.7/full/`;async function f(){return(await import(`${d}pyodide.mjs`)).loadPyodide({indexURL:d})}async function p(e,t){let n=await fetch(`https://pypi.org/pypi/${e}/${t}/json`);if(!n.ok)throw Error(`PyPI lookup failed for ${e}==${t} (${n.status})`);let r=await n.json(),i=(r.urls??[]).find(e=>e.filename.endsWith(`.whl`)&&!e.filename.includes(`cp`)&&!e.filename.includes(`pp`))??(r.urls??[]).find(e=>e.filename.endsWith(`.whl`));if(!i)throw Error(`No wheel found for ${e}==${t}`);return{filename:i.filename,url:i.url}}async function m(e,t,n,r){let{filename:i,url:a}=await p(n,r),c=`WHEELS/${i}`,u=!0;if(!await o(c)){u=!1;let e=await fetch(a);if(!e.ok)throw Error(`Wheel download failed for ${i} (${e.status})`);await l(c,new Blob([await e.arrayBuffer()]))}let d=await s(c);if(!d)throw Error(`Wheel vanished after download: ${i}`);return e.FS.writeFile(`/tmp/${i}`,new Uint8Array(await d.arrayBuffer())),await t.install(`emfs:/tmp/${i}`),{cached:u,filename:i}}let h=null,g=!1,_=!1,v=!1;function y(e,t,n,r,i,a){self.postMessage({id:e,kind:t,ok:n,data:r,error:i,...a})}async function b(e){if(g)return _;let t=performance.now(),n=e=>{let n=performance.now();self.postMessage({kind:`progress`,stage:e,ms:Math.round(n-t)}),t=n},i=await f();h=i,n(`python`),await i.loadPackage([`micropip`,`numpy`]),n(`numpy`);try{let e=await(await navigator.storage.getDirectory()).getDirectoryHandle(`sltp-market`,{create:!0});i.FS.mkdirTree(`/home/pyodide/.sltp/cache`),await i.mountNativeFS(`/home/pyodide/.sltp/cache`,e),v=!0}catch{}n(`cache`);let a=i.pyimport(`micropip`),o=await Promise.all([m(i,a,`sltp`,`0.1.351`),m(i,a,`python-dateutil`,`2.9.0`)]);await r(o.map(e=>e.filename)),n(`wheels`),await i.runPythonAsync(`
 import json
 import time
 
@@ -16,17 +16,56 @@ def register_strategy(key, classname, source):
     _STRATEGIES[key] = namespace[classname]
 
 
+def _install_shared_bulk_cache():
+    # Every large strategy ranks the same US universe. sltp keys its bulk
+    # cache by the exact ticker list, so Adaptive Momentum, Minimum
+    # Volatility and Mean Reversion each kept their own full decode. Two of
+    # those dictionaries are enough to push a phone WebView over its memory
+    # ceiling on the third run. Read one canonical universe and hand each
+    # strategy only the names it asked for; the cache stays warm across
+    # strategies and Pyodide only holds one copy of the bars.
+    from sltp.data import market_data_service as service
+
+    if getattr(service, "_sltp_shared_bulk", False):
+        return
+
+    original = service._bulk_histories
+
+    def shared_bulk(symbols, start, end):
+        if len(symbols) <= service.SYMBOL_CACHE_LIMIT:
+            return original(symbols, start, end)
+        try:
+            universe = service.get_all_tickers()
+            histories = original(universe, start, end)
+        except Exception:
+            # The canonical read is an optimisation. If the catalog is
+            # unavailable, let the engine take its normal path.
+            return original(symbols, start, end)
+        return {symbol: histories[symbol] for symbol in symbols if symbol in histories}
+
+    service._bulk_histories = shared_bulk
+    service.BULK_CACHE_LIMIT = 1
+    service._sltp_shared_bulk = True
+
+
 def run_strategy(key, start, end):
     from sltp.backtesting import Backtester
     from sltp.backtesting import backtester as _backtester
     from sltp.data import market_data_service as _market
     from sltp.web import to_jsonable
 
+    _install_shared_bulk_cache()
+
     # Time the bar reads. The backtester imported _get_histories by name, so
     # both module globals are patched; the timer is restored afterwards so a
     # failed run cannot leave the engine instrumented.
     _IO_STATS["io_seconds"] = 0.0
     _IO_STATS["io_calls"] = 0
+    # These counters used to survive the boot fetch, so every warm run still
+    # reported the first download. Reset them with the bar-read timer.
+    _BRIDGE_STATS["seconds"] = 0.0
+    _BRIDGE_STATS["bytes"] = 0
+    _BRIDGE_STATS["files"] = 0
     _original_backtester = _backtester._get_histories
     _original_market = getattr(_market, "_get_histories", None)
 
@@ -163,4 +202,4 @@ def enable_browser_fetch():
             raise IOError("download from " + str(url) + " is not a parquet file")
 
     set_fetch(_bridge)
-`),r(`engine`),i.globals.get(`enable_browser_fetch`)(),await i.globals.get(`prime_remote_cache`)(),r(`data`);let s=i.globals.get(`register_strategy`);for(let e of t)s(e.key,e.className,e.source);return m=o.every(e=>e.cached),p=!0,m}self.onmessage=async e=>{let t=e.data;try{if(t.kind===`init`){let e=await _(t.strategies);g(t.id,t.kind,!0,JSON.stringify({ready:!0}),void 0,{wheelsCached:e,mounted:h});return}if(!f||!p)throw Error(`engine is not ready yet`);if(t.kind===`run`){let e=f.globals.get(`run_strategy`),n=String(e(t.key,t.start,t.end));g(t.id,t.kind,!0,n);return}}catch(e){g(t.id,t.kind??`?`,!1,void 0,e instanceof Error?e.message:String(e))}}})();
+`),n(`engine`),i.globals.get(`enable_browser_fetch`)(),await i.globals.get(`prime_remote_cache`)(),n(`data`);let s=i.globals.get(`register_strategy`);for(let t of e)s(t.key,t.className,t.source);return _=o.every(e=>e.cached),g=!0,_}self.onmessage=async e=>{let t=e.data;try{if(t.kind===`init`){let e=await b(t.strategies);y(t.id,t.kind,!0,JSON.stringify({ready:!0}),void 0,{wheelsCached:e,mounted:v});return}if(!h||!g)throw Error(`engine is not ready yet`);if(t.kind===`run`){let e=h.globals.get(`run_strategy`),n=String(e(t.key,t.start,t.end));y(t.id,t.kind,!0,n);return}}catch(e){y(t.id,t.kind??`?`,!1,void 0,e instanceof Error?e.message:String(e))}}})();
