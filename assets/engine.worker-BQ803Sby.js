@@ -568,6 +568,7 @@ def run_project(filename, files, settings_json="{}"):
                 spread_pct=float(settings.get("spread_pct") or 0.0),
                 max_participation=None if participation is None else float(participation),
                 borrow_rate=float(settings.get("borrow_rate") or 0.0),
+                min_fill_notional=float(settings.get("min_fill_notional") or 0.0),
             )
             # Fees and slippage live on the book, not the Backtester signature.
             if settings.get("fee_rate") is not None:
