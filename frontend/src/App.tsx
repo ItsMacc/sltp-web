@@ -18,6 +18,7 @@ import DocsPage from './pages/DocsPage';
 import ResearchPage from './pages/ResearchPage';
 import StrategiesPage from './pages/StrategiesPage';
 import LabPage from './pages/LabPage';
+import { clearLabCache } from './lab/store';
 import LearnPage from './pages/LearnPage';
 import WatchlistPage from './pages/WatchlistPage';
 import ErrorToast from './ui/ErrorToast';
@@ -222,8 +223,10 @@ export default function App() {
       setLegalPage(null);
       clearRememberedLogin();
       // Preferences are cached to paint the next page instantly; leaving the
-      // cache behind would show the next sign-in this account's choices.
+      // cache behind would show the next sign-in this account's choices. The
+      // Lab snapshots hold this account's file trees, so they go too.
       clearUserSettingsCache();
+      await clearLabCache().catch(() => undefined);
       await supabase.auth.signOut();
     } finally {
       setSigningOut(false);
