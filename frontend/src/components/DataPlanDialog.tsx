@@ -66,7 +66,7 @@ export default function DataPlanDialog({ years, currentYears, onClose }: DataPla
   const shrinking = years < currentYears;
   const addText = preview ? `${preview.add.length} files · ${mb(preview.addBytes)}` : 'Reading the manifest…';
   const removeText = preview ? `${preview.remove.length} files · ${mb(preview.removeBytes)}` : 'Reading the manifest…';
-  const keepText = preview ? mb(preview.keepBytes) : '—';
+  const keepText = preview ? mb(preview.keepBytes) : '…';
 
   return (
     <div
@@ -85,8 +85,8 @@ export default function DataPlanDialog({ years, currentYears, onClose }: DataPla
               {years}-year data plan
             </h2>
             <p className="data-plan-sub">
-              This changes the market history stored on this phone. It does not change your
-              account, and your laptop keeps its own plan.
+              Changes the market history stored on this device. Your account and your other
+              devices are not affected.
             </p>
           </div>
           <Button
@@ -104,32 +104,31 @@ export default function DataPlanDialog({ years, currentYears, onClose }: DataPla
           <dl className="data-plan-facts">
             <div>
               <dt>
-                <HardDriveDownload size={14} aria-hidden="true" /> Downloads
+                <HardDriveDownload size={14} aria-hidden="true" /> To download
               </dt>
               <dd>{addText}</dd>
             </div>
             <div>
               <dt>
-                <Trash2 size={14} aria-hidden="true" /> Frees on this phone
+                <Trash2 size={14} aria-hidden="true" /> Freed on this device
               </dt>
               <dd>{removeText}</dd>
             </div>
             <div>
-              <dt>Keeps already stored</dt>
+              <dt>Already stored</dt>
               <dd>{keepText}</dd>
             </div>
           </dl>
 
           {shrinking ? (
             <p className="data-plan-note">
-              Older years are deleted from this phone. Nothing is lost from the dataset: the
-              files are still published, and setting a longer plan later downloads them again.
-              A chart or a backtest that starts before the new window will no longer find data
-              here.
+              Older years are deleted from this device. They stay published, so a longer plan
+              later downloads them again. Ranges that start before the shorter window will have
+              no local data.
             </p>
           ) : (
             <p className="data-plan-note">
-              The extra years download once and stay on this phone. Charts, date pickers and
+              The extra years download once and stay on this device. Charts, the date picker and
               backtests can then reach {years} years back instead of {currentYears}.
             </p>
           )}
@@ -137,11 +136,10 @@ export default function DataPlanDialog({ years, currentYears, onClose }: DataPla
           <div className="data-plan-risk">
             <AlertTriangle size={15} aria-hidden="true" />
             <p>
-              {years} years of bars on this phone is about {mb((preview?.keepBytes ?? 0) + (preview?.addBytes ?? 0))}{' '}
-              on disk, against {mb(preview?.keepBytes ?? 0)} now. The first switch downloads the
-              difference over your connection. Long drags across a decade of candles are heavier
-              on an older phone, and if the browser starts evicting storage, charts fall back to
-              fetching a file at a time.
+              About {mb((preview?.keepBytes ?? 0) + (preview?.addBytes ?? 0))} on disk after the
+              switch, against {mb(preview?.keepBytes ?? 0)} now. The first switch downloads the
+              difference. Dragging across a decade of candles is heavier on an older device, and
+              if the browser needs space, charts fall back to one file at a time.
             </p>
           </div>
 
