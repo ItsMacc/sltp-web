@@ -9,7 +9,7 @@
 // behind the sign-in gate, so a missing session means it expired mid-visit:
 // the caller gets a plain message it can show instead of a silent empty list.
 //
-// Reads use a five-minute browser snapshot to save Turso reads, with one
+// Reads use a thirty-minute browser snapshot to save Turso reads, with one
 // exception: the first seconds after a page load always ask the server. That
 // is the reload case — create a workspace on the laptop, refresh the phone,
 // see it immediately — while moving around inside the Lab still reuses the
@@ -18,12 +18,7 @@
 // in the same call.
 
 import { supabase } from '../../lib/supabase';
-import {
-  dropCachedBacktest,
-  readCachedBacktest,
-  renameCachedBacktest,
-  writeCachedBacktest,
-} from './backtestCache';
+import { dropCachedBacktest, renameCachedBacktest } from './backtestCache';
 import {
   createLabBacktest as apiCreateLabBacktest,
   createLabFile as apiCreateLabFile,
@@ -388,9 +383,12 @@ const prefetched = new Set<string>();
 
 /**
  * Called when the Lab opens: reads every project's file tree and backtest
- * list once, in the background, so opening a workspace later is a snapshot
- * hit instead of a fresh API wait. Failures are silent — a project the
- * reader cannot load will still show its own error when opened.
+ * summary list once, in the background, so opening a workspace or its history
+ * later is a snapshot hit instead of a fresh API wait. Full reports are
+ * deliberately not fetched here: one can be several megabytes, and most are
+ * never opened. The history window fetches a report on first open and then
+ * writes it to the OPFS cache. Failures are silent — a project the reader
+ * cannot load will still show its own error when opened.
  */
 export async function prefetchLabProjects(projectIds: string[]): Promise<void> {
   const queue = projectIds.filter((id) => id && !prefetched.has(id));
@@ -400,14 +398,7 @@ export async function prefetchLabProjects(projectIds: string[]): Promise<void> {
       const id = queue.shift();
       if (!id) return;
       try {
-        const [, summaries] = await Promise.all([getLabProjectFiles(id), listLabBacktests(id)]);
-        // Reports are immutable and cost an API read each time they are not on
-        // disk. Pull them now, one at a time, so opening one later is local.
-        for (const summary of summaries) {
-          if (await readCachedBacktest(summary.id)) continue;
-          const record = await getLabBacktest(summary.id);
-          await writeCachedBacktest(record);
-        }
+        await Promise.all([getLabProjectFiles(id), listLabBacktests(id)]);
       } catch {
         // Best-effort warm-up.
       }
