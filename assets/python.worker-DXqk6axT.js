@@ -1,4 +1,4 @@
-(function(){let e=new Map;function t(){return typeof navigator<`u`&&!!navigator.storage?.getDirectory}function n(){return!t()}async function r(e){try{let t=new Set(e),n=(await c(`WHEELS`)).filter(e=>e.endsWith(`.whl`)&&!t.has(e));return await Promise.all(n.map(e=>u(`WHEELS/${e}`))),n}catch{return[]}}async function i(e){return(await navigator.storage.getDirectory()).getDirectoryHandle(`sltp-market`,{create:e})}async function a(e,t){let n=e.split(`/`).filter(Boolean),r=n.pop(),a=await i(t);for(let e of n)a=await a.getDirectoryHandle(e,{create:t});return{dir:a,name:r}}async function o(t){if(e.has(t))return!0;if(n())return!1;try{let{dir:e,name:n}=await a(t,!1);return await e.getFileHandle(n),!0}catch{return!1}}async function s(t){let r=e.get(t);if(r)return new File([r],t.split(`/`).pop()||t,{type:r.type});if(n())return null;try{let{dir:e,name:n}=await a(t,!1);return(await e.getFileHandle(n)).getFile()}catch{return null}}async function c(t){let r=t.replace(/\/$/,``)+`/`,a=[...e.keys()].filter(e=>e.startsWith(r)).map(e=>e.slice(r.length));if(n())return a;let o=[...a],s=async(e,t)=>{for await(let n of e.values())n.kind===`file`?o.push(t+n.name):n.kind===`directory`&&await s(n,`${t}${n.name}/`)};try{let e=t.split(`/`).filter(Boolean),n=await i(!1);for(let t of e)n=await n.getDirectoryHandle(t);await s(n,``)}catch{}return o}async function l(t,r){if(n()){e.set(t,r);return}let{dir:i,name:o}=await a(t,!0),s=await(await i.getFileHandle(o,{create:!0})).createWritable();try{await s.write(r)}finally{await s.close()}}async function u(t){if(e.delete(t),!n())try{let{dir:e,name:n}=await a(t,!1);await e.removeEntry(n)}catch{}}let d=`https://cdn.jsdelivr.net/pyodide/v314.0.7/full/`,f=null,p=0,m=[];function h(e){self.postMessage(e)}async function g(){return(await import(`${d}pyodide.mjs`)).loadPyodide({indexURL:d})}async function _(e,t){let n=await fetch(`https://pypi.org/pypi/${e}/${t}/json`);if(!n.ok)throw Error(`PyPI lookup failed for ${e}==${t} (${n.status})`);let r=await n.json(),i=(r.urls??[]).find(e=>e.filename.endsWith(`.whl`)&&!e.filename.includes(`cp`)&&!e.filename.includes(`pp`))??(r.urls??[]).find(e=>e.filename.endsWith(`.whl`));if(!i)throw Error(`No wheel found for ${e}==${t}`);return{filename:i.filename,url:i.url}}async function v(e,t,n,r){try{let{filename:i,url:a}=await _(n,r),c=`WHEELS/${i}`,u=!0;if(!await o(c)){u=!1;let e=await fetch(a);if(!e.ok)throw Error(`Wheel download failed for ${i} (${e.status})`);await l(c,new Blob([await e.arrayBuffer()]))}let d=await s(c);if(!d)throw Error(`Wheel vanished after download: ${i}`);return e.FS.writeFile(`/tmp/${i}`,new Uint8Array(await d.arrayBuffer())),await t.install(`emfs:/tmp/${i}`),{cached:u,filename:i}}catch{return await t.install(`${n}==${r}`),{cached:!1,filename:null}}}async function y(){if(f)return;h({type:`status`,text:`Loading Python…`});let e=await g();e.setStdout({batched:e=>{p&&(m.push({stream:`stdout`,text:e}),h({type:`stdout`,id:p,text:e}))}}),e.setStderr({batched:e=>{p&&(m.push({stream:`stderr`,text:e}),h({type:`stderr`,id:p,text:e}))}}),e.runPython(`
+(function(){let e=new Map;function t(){return typeof navigator<`u`&&!!navigator.storage?.getDirectory}function n(){return!t()}async function r(e){try{let t=new Set(e),n=(await c(`WHEELS`)).filter(e=>e.endsWith(`.whl`)&&!t.has(e));return await Promise.all(n.map(e=>u(`WHEELS/${e}`))),n}catch{return[]}}async function i(e){return(await navigator.storage.getDirectory()).getDirectoryHandle(`sltp-market`,{create:e})}async function a(e,t){let n=e.split(`/`).filter(Boolean),r=n.pop(),a=await i(t);for(let e of n)a=await a.getDirectoryHandle(e,{create:t});return{dir:a,name:r}}async function o(t){if(e.has(t))return!0;if(n())return!1;try{let{dir:e,name:n}=await a(t,!1);return await e.getFileHandle(n),!0}catch{return!1}}async function s(t){let r=e.get(t);if(r)return new File([r],t.split(`/`).pop()||t,{type:r.type});if(n())return null;try{let{dir:e,name:n}=await a(t,!1);return(await e.getFileHandle(n)).getFile()}catch{return null}}async function c(t){let r=t.replace(/\/$/,``)+`/`,a=[...e.keys()].filter(e=>e.startsWith(r)).map(e=>e.slice(r.length));if(n())return a;let o=[...a],s=async(e,t)=>{for await(let n of e.values())n.kind===`file`?o.push(t+n.name):n.kind===`directory`&&await s(n,`${t}${n.name}/`)};try{let e=t.split(`/`).filter(Boolean),n=await i(!1);for(let t of e)n=await n.getDirectoryHandle(t);await s(n,``)}catch{}return o}async function l(t,r){if(n()){e.set(t,r);return}let{dir:i,name:o}=await a(t,!0),s=await(await i.getFileHandle(o,{create:!0})).createWritable();try{await s.write(r)}finally{await s.close()}}async function u(t){if(e.delete(t),!n())try{let{dir:e,name:n}=await a(t,!1);await e.removeEntry(n)}catch{}}let d=`https://cdn.jsdelivr.net/pyodide/v314.0.7/full/`,f=`WHEELS/resolved.json`,p=null,m=null,h=0,g=[];function _(e){self.postMessage(e)}async function v(){return(await import(`${d}pyodide.mjs`)).loadPyodide({indexURL:d})}async function y(e,t){let n=await fetch(`https://pypi.org/pypi/${e}/${t}/json`);if(!n.ok)throw Error(`PyPI lookup failed for ${e}==${t} (${n.status})`);let r=await n.json(),i=(r.urls??[]).find(e=>e.filename.endsWith(`.whl`)&&!e.filename.includes(`cp`)&&!e.filename.includes(`pp`))??(r.urls??[]).find(e=>e.filename.endsWith(`.whl`));if(!i)throw Error(`No wheel found for ${e}==${t}`);return{filename:i.filename,url:i.url}}async function b(){if(p)return p;try{let e=await s(f);p=e?JSON.parse(await e.text()):{}}catch{p={}}return p}async function x(e,t){let n=await b();n[e]=t;try{await l(f,new Blob([JSON.stringify(n)],{type:`application/json`}))}catch{}}async function S(e,t,n,r){try{let i=`${n}==${r}`,a=(await b())[i],{filename:c,url:u}=a??await y(n,r);a||await x(i,{filename:c,url:u});let d=`WHEELS/${c}`,f=!0;if(!await o(d)){f=!1;let e=await fetch(u);if(!e.ok)throw Error(`Wheel download failed for ${c} (${e.status})`);await l(d,new Blob([await e.arrayBuffer()]))}let p=await s(d);if(!p)throw Error(`Wheel vanished after download: ${c}`);return e.FS.writeFile(`/tmp/${c}`,new Uint8Array(await p.arrayBuffer())),await t.install(`emfs:/tmp/${c}`),{cached:f,filename:c}}catch{return await t.install(`${n}==${r}`),{cached:!1,filename:null}}}async function C(){if(m)return;_({type:`status`,text:`Loading Python…`});let e=await v();e.setStdout({batched:e=>{h&&(g.push({stream:`stdout`,text:e}),_({type:`stdout`,id:h,text:e}))}}),e.setStderr({batched:e=>{h&&(g.push({stream:`stderr`,text:e}),_({type:`stderr`,id:h,text:e}))}}),e.runPython(`
 import builtins
 import json
 import linecache
@@ -185,17 +185,30 @@ def _payload(result, namespace):
     return {"svg": _chart_svg(result, payload), **payload}
 
 
+# What the last run wrote, so a rerun only touches the files that changed.
+_PROJECT_WRITTEN = {}
+
+
 def run_project(filename, files, settings_json="{}"):
     # Settings arrive as a JSON string so null/true mean the same thing here
     # as they do in the message from the page.
     settings = json.loads(settings_json) if settings_json else {}
-    if PROJECT_ROOT.exists():
-        shutil.rmtree(PROJECT_ROOT)
+    # Writing only the changed files is what makes a rerun cheap: the old code
+    # deleted the tree and rewrote every file, so a one-line edit paid the
+    # whole project's IO again. Files that disappeared are unlinked instead.
     PROJECT_ROOT.mkdir(parents=True, exist_ok=True)
     for name, content in files.items():
         path = PROJECT_ROOT / name
+        if _PROJECT_WRITTEN.get(name) == content and path.is_file():
+            continue
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
+        _PROJECT_WRITTEN[name] = content
+    for stale_name in [name for name in _PROJECT_WRITTEN if name not in files]:
+        stale = PROJECT_ROOT / stale_name
+        if stale.is_file():
+            stale.unlink()
+        del _PROJECT_WRITTEN[stale_name]
 
     _clear_project_modules()
     # The base path is captured on the first run, after micropip has added its
@@ -451,13 +464,21 @@ def _module_members(code, line, column):
     return items
 
 
+# What the last analysis request wrote, so an unchanged file is not rewritten
+# on every keystroke.
+_ANALYZE_WRITTEN = {}
+
+
 def analyze(method, code, path, line, column, files_json=""):
     files = json.loads(files_json) if files_json else {}
     for name, content in files.items():
+        if _ANALYZE_WRITTEN.get(name) == content:
+            continue
         target = ANALYZE_ROOT / name
         target.parent.mkdir(parents=True, exist_ok=True)
         try:
             target.write_text(content, encoding="utf-8")
+            _ANALYZE_WRITTEN[name] = content
         except OSError:
             pass
 
@@ -562,7 +583,7 @@ def analyze(method, code, path, line, column, files_json=""):
         return json.dumps({"ok": False, "error": str(exc)})
 
     return json.dumps({"ok": False, "error": "unknown method " + method})
-`),f=e;let t=!1;try{h({type:`status`,text:`Linking the market cache…`});let n=await(await navigator.storage.getDirectory()).getDirectoryHandle(`sltp-market`,{create:!0});e.FS.mkdirTree(`/home/pyodide/.sltp/cache`),await e.mountNativeFS(`/home/pyodide/.sltp/cache`,n),t=!0}catch{}let n=!1,i=null,a=!1,o=null;try{h({type:`status`,text:`Installing numpy…`}),await e.loadPackage([`micropip`,`numpy`]),h({type:`status`,text:`Installing the trading engine…`});let t=e.pyimport(`micropip`),i=await v(e,t,`sltp`,`0.1.39`),a=await v(e,t,`python-dateutil`,`2.9.0`);await r([i.filename,a.filename].filter(e=>e!==null)),n=!0}catch(e){i=e instanceof Error?e.message:String(e)}if(n)try{h({type:`status`,text:`Preparing the analyser…`});let t=e.pyimport(`micropip`);await t.install(`jedi`),await t.install(`pyflakes`)}catch{}if(n)try{h({type:`status`,text:`Syncing market data…`}),e.runPython(`
+`),m=e;let t=!1;try{_({type:`status`,text:`Linking the market cache…`});let n=await(await navigator.storage.getDirectory()).getDirectoryHandle(`sltp-market`,{create:!0});e.FS.mkdirTree(`/home/pyodide/.sltp/cache`),await e.mountNativeFS(`/home/pyodide/.sltp/cache`,n),t=!0}catch{}let n=!1,i=null,a=!1,o=null,s=[];try{_({type:`status`,text:`Installing numpy…`}),await e.loadPackage([`micropip`,`numpy`]),_({type:`status`,text:`Installing the trading engine…`});let t=e.pyimport(`micropip`),r=await S(e,t,`sltp`,`0.1.39`),i=await S(e,t,`python-dateutil`,`2.9.0`);s.push(...[r.filename,i.filename].filter(e=>e!==null)),n=!0}catch(e){i=e instanceof Error?e.message:String(e)}if(n)try{_({type:`status`,text:`Preparing the analyser…`});let t=e.pyimport(`micropip`),n=await S(e,t,`parso`,`0.8.7`),i=await S(e,t,`jedi`,`0.20.1`),a=await S(e,t,`pyflakes`,`4.1.0`);s.push(...[n.filename,i.filename,a.filename].filter(e=>e!==null)),await r(s)}catch{}if(n)try{_({type:`status`,text:`Syncing market data…`}),e.runPython(`
 def enable_browser_fetch():
     from sltp.data.remote import set_fetch
 
@@ -642,4 +663,4 @@ def prime_market_cache():
                         shutil.copy2(child, dest / child.name)
                     except shutil.SameFileError:
                         pass
-`),e.globals.get(`enable_browser_fetch`)(),await Promise.resolve(e.globals.get(`prime_market_cache`)()),a=!0}catch(e){o=e instanceof Error?e.message:String(e)}e.registerJsModule(`lab_bridge`,{status:e=>{p&&h({type:`run-status`,id:p,text:String(e)})}}),h({type:`ready`,version:String(e.runPython(`python_version`)),engine:n,market:a,warning:i??o,cache:t})}self.onmessage=async e=>{let t=e.data;try{if(t.kind===`init`){await y();return}if(!f)throw Error(`Python is not ready yet`);if(t.kind===`reset`){f.runPython(`reset_project()`),h({type:`reset-ok`});return}if(t.kind===`analyze`){try{let e={};for(let n of t.files)e[n.name]=n.content;let n=String(await f.runPythonAsync(`analyze(${JSON.stringify(t.method)}, ${JSON.stringify(t.code)}, ${JSON.stringify(t.path)}, ${JSON.stringify(t.line)}, ${JSON.stringify(t.column)}, ${JSON.stringify(JSON.stringify(e))})`)),r=JSON.parse(n);h({type:`analyze-result`,id:t.id,ok:r.ok===!0,error:r.error,data:r.data??null})}catch(e){h({type:`analyze-result`,id:t.id,ok:!1,error:e instanceof Error?e.message:String(e)})}return}if(t.kind===`run`){p=t.id,m=[],h({type:`run-status`,id:t.id,text:`Preparing the workspace…`}),f.globals.set(`lab_status`,e=>{h({type:`run-status`,id:t.id,text:String(e)})});let e=performance.now(),n={};for(let e of t.files)n[e.name]=e.name===t.filename?t.code:e.content;try{let r=String(await f.runPythonAsync(`run_project(${JSON.stringify(t.filename)}, ${JSON.stringify(n)}, ${JSON.stringify(JSON.stringify(t.settings??{}))})`)),i;try{i=JSON.parse(r)}catch{i={ok:!1,error:r}}h({type:`done`,id:t.id,ok:i.ok===!0,message:i.error,notice:i.notice,result:i.result??null,logs:m,durationMs:performance.now()-e})}catch(n){h({type:`done`,id:t.id,ok:!1,message:n instanceof Error?n.message:String(n),logs:m,durationMs:performance.now()-e})}finally{p=0}}}catch(e){let n=e instanceof Error?e.message:String(e);if(t.kind===`init`){h({type:`boot-error`,message:n});return}h({type:`done`,id:t.id,ok:!1,message:n,durationMs:0})}}})();
+`),e.globals.get(`enable_browser_fetch`)(),await Promise.resolve(e.globals.get(`prime_market_cache`)()),a=!0}catch(e){o=e instanceof Error?e.message:String(e)}e.registerJsModule(`lab_bridge`,{status:e=>{h&&_({type:`run-status`,id:h,text:String(e)})}}),_({type:`ready`,version:String(e.runPython(`python_version`)),engine:n,market:a,warning:i??o,cache:t})}self.onmessage=async e=>{let t=e.data;try{if(t.kind===`init`){await C();return}if(!m)throw Error(`Python is not ready yet`);if(t.kind===`reset`){m.runPython(`reset_project()`),_({type:`reset-ok`});return}if(t.kind===`analyze`){try{let e={};for(let n of t.files)e[n.name]=n.content;let n=String(await m.runPythonAsync(`analyze(${JSON.stringify(t.method)}, ${JSON.stringify(t.code)}, ${JSON.stringify(t.path)}, ${JSON.stringify(t.line)}, ${JSON.stringify(t.column)}, ${JSON.stringify(JSON.stringify(e))})`)),r=JSON.parse(n);_({type:`analyze-result`,id:t.id,ok:r.ok===!0,error:r.error,data:r.data??null})}catch(e){_({type:`analyze-result`,id:t.id,ok:!1,error:e instanceof Error?e.message:String(e)})}return}if(t.kind===`run`){h=t.id,g=[],_({type:`run-status`,id:t.id,text:`Preparing the workspace…`}),m.globals.set(`lab_status`,e=>{_({type:`run-status`,id:t.id,text:String(e)})});let e=performance.now(),n={};for(let e of t.files)n[e.name]=e.name===t.filename?t.code:e.content;try{let r=String(await m.runPythonAsync(`run_project(${JSON.stringify(t.filename)}, ${JSON.stringify(n)}, ${JSON.stringify(JSON.stringify(t.settings??{}))})`)),i;try{i=JSON.parse(r)}catch{i={ok:!1,error:r}}_({type:`done`,id:t.id,ok:i.ok===!0,message:i.error,notice:i.notice,result:i.result??null,logs:g,durationMs:performance.now()-e})}catch(n){_({type:`done`,id:t.id,ok:!1,message:n instanceof Error?n.message:String(n),logs:g,durationMs:performance.now()-e})}finally{h=0}}}catch(e){let n=e instanceof Error?e.message:String(e);if(t.kind===`init`){_({type:`boot-error`,message:n});return}_({type:`done`,id:t.id,ok:!1,message:n,durationMs:0})}}})();
