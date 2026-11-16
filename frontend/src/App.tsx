@@ -53,6 +53,9 @@ export interface UserProfile {
   settings?: { theme?: string; [key: string]: any };
 }
 
+/** The tabs whose charts read local bars, so the download earns its bandwidth. */
+const MARKET_DATA_TABS = new Set<string>(['research', 'strategies', 'watchlist']);
+
 const LEGAL_TITLES: Record<LegalPageKind, string> = {
   privacy: 'Privacy Policy — SLTP',
   terms: 'Terms of Service — SLTP',
@@ -235,13 +238,15 @@ export default function App() {
   // Market data downloads itself in the background from the first visit: the
   // recent eras land in OPFS while the visitor reads, so charts open warm.
   // Fire-and-forget on purpose — progress lives in the sync status store.
-  // Hand it to the browser once the first screen exists. Started at import time
-  // it competed with the bundle and the first API calls for the same connection,
-  // which showed up as a slow page rather than as slow data.
+  // The first sync pulls the whole history into OPFS: about 66 MB over two
+  // years of files. Started on every visit it shared the connection with the
+  // bundle and every API call, so pages that read no bars (home, docs, learn)
+  // waited behind it. It now starts when a page that draws charts is opened.
   useEffect(() => {
-    const timer = window.setTimeout(() => void bootMarketSync(), 1200);
+    if (!MARKET_DATA_TABS.has(activeTab)) return;
+    const timer = window.setTimeout(() => void bootMarketSync(), 400);
     return () => window.clearTimeout(timer);
-  }, []);
+  }, [activeTab]);
 
   // Navigation is manual here (tabs, the docs route, anchor jumps). Leaving the
   // browser's own scroll restoration on lets it yank a new page back to a saved
