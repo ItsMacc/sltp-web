@@ -1,8 +1,16 @@
-(function(){let e=new Map;function t(){return typeof navigator<`u`&&!!navigator.storage?.getDirectory}function n(){return!t()}async function r(e){try{let t=new Set(e),n=(await c(`WHEELS`)).filter(e=>e.endsWith(`.whl`)&&!t.has(e));return await Promise.all(n.map(e=>u(`WHEELS/${e}`))),n}catch{return[]}}async function i(e){return(await navigator.storage.getDirectory()).getDirectoryHandle(`sltp-market`,{create:e})}async function a(e,t){let n=e.split(`/`).filter(Boolean),r=n.pop(),a=await i(t);for(let e of n)a=await a.getDirectoryHandle(e,{create:t});return{dir:a,name:r}}async function o(t){if(e.has(t))return!0;if(n())return!1;try{let{dir:e,name:n}=await a(t,!1);return await e.getFileHandle(n),!0}catch{return!1}}async function s(t){let r=e.get(t);if(r)return new File([r],t.split(`/`).pop()||t,{type:r.type});if(n())return null;try{let{dir:e,name:n}=await a(t,!1);return(await e.getFileHandle(n)).getFile()}catch{return null}}async function c(t){let r=t.replace(/\/$/,``)+`/`,a=[...e.keys()].filter(e=>e.startsWith(r)).map(e=>e.slice(r.length));if(n())return a;let o=[...a],s=async(e,t)=>{for await(let n of e.values())n.kind===`file`?o.push(t+n.name):n.kind===`directory`&&await s(n,`${t}${n.name}/`)};try{let e=t.split(`/`).filter(Boolean),n=await i(!1);for(let t of e)n=await n.getDirectoryHandle(t);await s(n,``)}catch{}return o}async function l(t,r){if(n()){e.set(t,r);return}let{dir:i,name:o}=await a(t,!0),s=await(await i.getFileHandle(o,{create:!0})).createWritable();try{await s.write(r)}finally{await s.close()}}async function u(t){if(e.delete(t),!n())try{let{dir:e,name:n}=await a(t,!1);await e.removeEntry(n)}catch{}}let d=`https://cdn.jsdelivr.net/pyodide/v314.0.7/full/`;async function f(){return(await import(`${d}pyodide.mjs`)).loadPyodide({indexURL:d})}async function p(e,t){let n=await fetch(`https://pypi.org/pypi/${e}/${t}/json`);if(!n.ok)throw Error(`PyPI lookup failed for ${e}==${t} (${n.status})`);let r=await n.json(),i=(r.urls??[]).find(e=>e.filename.endsWith(`.whl`)&&!e.filename.includes(`cp`)&&!e.filename.includes(`pp`))??(r.urls??[]).find(e=>e.filename.endsWith(`.whl`));if(!i)throw Error(`No wheel found for ${e}==${t}`);return{filename:i.filename,url:i.url}}async function m(e,t,n,r){let{filename:i,url:a}=await p(n,r),c=`WHEELS/${i}`,u=!0;if(!await o(c)){u=!1;let e=await fetch(a);if(!e.ok)throw Error(`Wheel download failed for ${i} (${e.status})`);await l(c,new Blob([await e.arrayBuffer()]))}let d=await s(c);if(!d)throw Error(`Wheel vanished after download: ${i}`);return e.FS.writeFile(`/tmp/${i}`,new Uint8Array(await d.arrayBuffer())),await t.install(`emfs:/tmp/${i}`),{cached:u,filename:i}}let h=null,g=!1,_=!1,v=!1;function y(e,t,n,r,i,a){self.postMessage({id:e,kind:t,ok:n,data:r,error:i,...a})}async function b(e){if(g)return _;let t=performance.now(),n=e=>{let n=performance.now();self.postMessage({kind:`progress`,stage:e,ms:Math.round(n-t)}),t=n},i=await f();if(h=i,n(`python`),await i.loadPackage([`micropip`,`numpy`,`pyarrow`,`python-dateutil`]),n(`numpy`),!navigator.storage?.getDirectory)throw Error(`This browser has no OPFS, so the market cache cannot be mounted.`);let a=await(await navigator.storage.getDirectory()).getDirectoryHandle(`sltp-market`,{create:!0});i.FS.mkdirTree(`/home/pyodide/.sltp/cache`),await i.mountNativeFS(`/home/pyodide/.sltp/cache`,a),v=!0,n(`cache`);let o=await m(i,i.pyimport(`micropip`),`sltp`,`0.1.39`);await r([o.filename]),n(`wheels`),await i.runPythonAsync(`
+(function(){let e=`https://cdn.jsdelivr.net/pyodide/v314.0.7/full/`,t=`0.1.39`;async function n(){return(await import(`${e}pyodide.mjs`)).loadPyodide({indexURL:e})}let r=null,i=!1,a=!1;function o(e,t,n,r,i,a){self.postMessage({id:e,kind:t,ok:n,data:r,error:i,...a})}async function s(e){if(i)return;let o=performance.now(),s=o,c=e=>{let t=performance.now();console.log(`[engine] stage ${e}: +${Math.round(t-s)}ms (boot ${Math.round(t-o)}ms)`),self.postMessage({kind:`progress`,stage:e,ms:Math.round(t-s),total:Math.round(t-o)}),s=t};console.log(`[engine] boot start`,{strategies:e.map(e=>e.key),cores:navigator.hardwareConcurrency,deviceMemory:navigator.deviceMemory});let l=await n();if(r=l,c(`python`),await l.loadPackage([`micropip`,`numpy`,`pyarrow`,`python-dateutil`]),c(`packages`),!navigator.storage?.getDirectory)throw Error(`This browser has no OPFS, so the market cache cannot be mounted.`);let u=performance.now(),d=await(await navigator.storage.getDirectory()).getDirectoryHandle(`sltp-market`,{create:!0});l.FS.mkdirTree(`/home/pyodide/.sltp/cache`),await l.mountNativeFS(`/home/pyodide/.sltp/cache`,d),a=!0,console.log(`[engine] OPFS mounted in ${Math.round(performance.now()-u)}ms`,{opfs:`sltp-market`,pyodide:`/home/pyodide/.sltp/cache`}),c(`cache`);let f=performance.now();await l.pyimport(`micropip`).install(`sltp==${t}`),console.log(`[engine] pip install sltp==${t} in ${Math.round(performance.now()-f)}ms`),c(`wheels`),await l.runPythonAsync(`
 import json
 import time
 
 _STRATEGIES = {}
+
+# Same setup as the standalone benchmark page: the bars are already in the
+# mounted OPFS cache, so the engine must never reach for the network mid-run.
+# With auto-update on, sltp re-checks R2 through a synchronous XHR before it
+# reads, and on a phone that reads as a minute-long download instead of a
+# backtest.
+from sltp.data import config as _config
+_config.set_auto_update(False)
 
 # Timings for one run: how much of it was reading bars, and how much was the
 # day loop itself. Printed in the UI, so a slow phone names its bottleneck
@@ -62,6 +70,7 @@ def run_strategy(key, start, end):
     from sltp.data import market_data_service as _market
     from sltp.web import to_jsonable
 
+    print(f"[run] {key} {start}..{end or 'latest'} starting", flush=True)
     _install_shared_bulk_cache()
 
     # A new date window invalidates the old decoded bars. Release them before
@@ -113,6 +122,13 @@ def run_strategy(key, start, end):
         _backtester._get_histories = _original_backtester
         if _original_market is not None:
             _market._get_histories = _original_market
+        print(
+            f"[run] {key} done in {_run_seconds:.2f}s "
+            f"(bar reads {_IO_STATS['io_seconds']:.2f}s in {_IO_STATS['io_calls']} calls, "
+            f"bridge {_BRIDGE_STATS['files']} files / "
+            f"{_BRIDGE_STATS['bytes'] / 1048576:.1f} MB)",
+            flush=True,
+        )
     # sltp's curve points carry portfolio_value; accept a bare value too so
     # a point never dies inside to_jsonable with a bare KeyError. Anything
     # else fails loud, naming the keys, the range and the engine version.
@@ -209,20 +225,23 @@ def prime_remote_cache():
     cache = Path(_remote.CACHE_ROOT)
     market = cache / "MARKET_DAILY"
     symbol_dir = cache / "symbol_data"
+    print(
+        f"[prime] {cache}: {len(list(market.glob('*.bin')))} bundles, "
+        f"catalog={symbol_dir.joinpath('symbol_catalog.parquet').is_file()}",
+        flush=True,
+    )
 
     # Self-heal: a parquet without its magic is a truncated download, and a
     # bundle too small to hold a header is not a bundle. Drop both so the
-    # sync below (or sltp's own fetch) writes them again.
-    for directory in (market, symbol_dir):
-        if not directory.is_dir():
-            continue
-        for cached in directory.glob("*.parquet"):
-            try:
-                with open(cached, "rb") as handle:
-                    if handle.read(4) != b"PAR1":
-                        cached.unlink()
-            except OSError:
-                pass
+    # next sync (or sltp's own fetch) writes them again.
+    for cached in [*market.glob("*.parquet"), *symbol_dir.glob("*.parquet")]:
+        try:
+            with open(cached, "rb") as handle:
+                broken = handle.read(4) != b"PAR1"
+        except OSError:
+            broken = True
+        if broken:
+            cached.unlink(missing_ok=True)
     for cached in market.glob("*.bin"):
         try:
             if cached.stat().st_size <= 24:
@@ -230,9 +249,17 @@ def prime_remote_cache():
         except OSError:
             pass
 
+    # Metadata already on disk means no network: the main-thread sync owns
+    # freshness, and sltp's own fetch still fills a missing bundle on demand.
+    have_catalog = (cache / "SYMBOL_DATA" / "symbol_catalog.parquet").is_file() or (
+        symbol_dir / "symbol_catalog.parquet"
+    ).is_file()
+    if not (have_catalog and (market / "market_actions.parquet").is_file()):
+        print("[prime] catalog/actions missing, fetching metadata", flush=True)
+        _remote.sync_catalog()
+        _remote.sync_actions()
+
     symbol_dir.mkdir(parents=True, exist_ok=True)
-    _remote.sync_catalog()
-    _remote.sync_actions()
 
     src = cache / "SYMBOL_DATA"
     if src.is_dir():
@@ -248,6 +275,7 @@ def prime_remote_cache():
                     except shutil.SameFileError:
                         # Case-insensitive checkout: src and dest are one dir.
                         pass
+    print("[prime] ready", flush=True)
 
 _BRIDGE_STATS = {"seconds": 0.0, "bytes": 0, "files": 0}
 
@@ -284,4 +312,4 @@ def enable_browser_fetch():
             raise IOError("download from " + str(url) + " is not a parquet file")
 
     set_fetch(_bridge)
-`),n(`engine`),i.globals.get(`enable_browser_fetch`)(),await i.globals.get(`prime_remote_cache`)(),n(`data`);let s=i.globals.get(`register_strategy`);for(let t of e)s(t.key,t.className,t.source);return _=o.cached,g=!0,_}self.onmessage=async e=>{let t=e.data;try{if(t.kind===`init`){let e=await b(t.strategies);y(t.id,t.kind,!0,JSON.stringify({ready:!0}),void 0,{wheelsCached:e,mounted:v});return}if(!h||!g)throw Error(`engine is not ready yet`);if(t.kind===`run`){let e=h.globals.get(`run_strategy`),n=String(e(t.key,t.start,t.end));y(t.id,t.kind,!0,n);return}if(t.kind===`lab-load`){let e=h.globals.get(`load_all_market_data`),n=String(e(t.start,t.end));y(t.id,t.kind,!0,n);return}if(t.kind===`python`){let e=h.globals.get(`run_terminal`),n=String(e(t.code));y(t.id,t.kind,!0,n);return}}catch(e){y(t.id,t.kind??`?`,!1,void 0,e instanceof Error?e.message:String(e))}}})();
+`),c(`engine`),l.globals.get(`enable_browser_fetch`)();let p=l.globals.get(`prime_remote_cache`),m=performance.now();await p(),console.log(`[engine] cache prime in ${Math.round(performance.now()-m)}ms`),c(`data`);let h=l.globals.get(`register_strategy`);for(let t of e)h(t.key,t.className,t.source);i=!0,console.log(`[engine] boot complete in ${Math.round(performance.now()-o)}ms`)}self.onmessage=async e=>{let t=e.data,n=performance.now();console.log(`[engine] <- ${t.kind}`,t.kind===`run`?{key:t.key,start:t.start,end:t.end}:{id:t.id});try{if(t.kind===`init`){await s(t.strategies),o(t.id,t.kind,!0,JSON.stringify({ready:!0}),void 0,{mounted:a}),console.log(`[engine] init answered in ${Math.round(performance.now()-n)}ms`);return}if(!r||!i)throw Error(`engine is not ready yet`);if(t.kind===`run`){let e=r.globals.get(`run_strategy`);console.log(`[engine] run ${t.key} dispatched to Python`);let i=String(e(t.key,t.start,t.end));console.log(`[engine] run ${t.key} returned ${i.length} bytes in ${Math.round(performance.now()-n)}ms`),o(t.id,t.kind,!0,i);return}if(t.kind===`lab-load`){let e=r.globals.get(`load_all_market_data`),n=String(e(t.start,t.end));o(t.id,t.kind,!0,n);return}if(t.kind===`python`){let e=r.globals.get(`run_terminal`),n=String(e(t.code));o(t.id,t.kind,!0,n);return}}catch(e){console.error(`[engine] message failed`,t.kind,e),o(t.id,t.kind??`?`,!1,void 0,e instanceof Error?e.message:String(e))}}})();
