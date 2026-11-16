@@ -22,7 +22,7 @@
    ============================================================ */
 
 /* ---------- Fonts ---------- */
-@import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400..700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
 /* ---------- Design tokens ---------- */
 :root, :root[data-theme="light"] {
@@ -104,9 +104,9 @@
 
   /* Typography */
   --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
-  /* Interface face for data-heavy screens: taller x-height, so the same size
-     reads larger and steadier than the geometric sans above. */
-  --font-ui: 'Inter', 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  /* Interface face for data-heavy screens. It is the docs face on purpose:
+     one family across the app, so a page cannot look like a different site. */
+  --font-ui: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
   --font-heading: 'Instrument Serif', Georgia, serif;
   --font-mono: 'JetBrains Mono', ui-monospace, monospace;
 
