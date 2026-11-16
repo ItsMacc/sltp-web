@@ -69,6 +69,11 @@ _STRATEGIES = {}
 # instead of leaving the reader staring at a spinner.
 _IO_STATS = {"io_seconds": 0.0, "io_calls": 0}
 
+# The user-facing date window of the last run. Changing it is a memory
+# boundary: the old window's decoded universes are dead weight while the new
+# one is being built, and on a phone their overlap is enough to kill the tab.
+_LAST_RUN_WINDOW = None
+
 
 def register_strategy(key, classname, source):
     namespace = {}
@@ -115,6 +120,19 @@ def run_strategy(key, start, end):
     from sltp.web import to_jsonable
 
     _install_shared_bulk_cache()
+
+    # A new date window invalidates the old decoded bars. Release them before
+    # the new read instead of waiting for the cache limit to evict them after
+    # the new dictionary has already been allocated.
+    global _LAST_RUN_WINDOW
+    window = (start, end or None)
+    if _LAST_RUN_WINDOW != window:
+        with _market._LOAD_LOCK:
+            _market._BULK_CACHE.clear()
+            _market.refresh_market_data_cache()
+        _LAST_RUN_WINDOW = window
+        import gc as _gc
+        _gc.collect()
 
     # Time the bar reads. The backtester imported _get_histories by name, so
     # both module globals are patched; the timer is restored afterwards so a
