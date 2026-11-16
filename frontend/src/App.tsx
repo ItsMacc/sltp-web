@@ -235,8 +235,17 @@ export default function App() {
   // Market data downloads itself in the background from the first visit: the
   // recent eras land in OPFS while the visitor reads, so charts open warm.
   // Fire-and-forget on purpose — progress lives in the sync status store.
+  // Hand it to the browser once the first screen exists. Started at import time
+  // it competed with the bundle and the first API calls for the same connection,
+  // which showed up as a slow page rather than as slow data.
   useEffect(() => {
-    void bootMarketSync();
+    const idle = 'requestIdleCallback' in window
+      ? window.requestIdleCallback(() => void bootMarketSync(), { timeout: 2500 })
+      : window.setTimeout(() => void bootMarketSync(), 1200);
+    return () => {
+      if ('cancelIdleCallback' in window) window.cancelIdleCallback(idle as number);
+      else window.clearTimeout(idle as number);
+    };
   }, []);
 
   // Navigation is manual here (tabs, the docs route, anchor jumps). Leaving the
@@ -328,8 +337,11 @@ export default function App() {
         setLoading(false);
         return;
       }
-      if (session?.user) await syncUser(session.user.id, session.user.email || '');
+      // Paint first, fill the account in behind it. Waiting for the profile row
+      // and the provision call put a Supabase read and a Render round trip in
+      // front of every first frame, which is most of what "slow to load" meant.
       setLoading(false);
+      if (session?.user) void syncUser(session.user.id, session.user.email || '');
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_, session) => {
