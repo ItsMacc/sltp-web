@@ -6,8 +6,28 @@
     <link rel="icon" type="image/svg+xml" href="/logo.svg" />
     <meta name="theme-color" content="#17161f" />
     <title>SLTP</title>
-    <script type="module" crossorigin src="/assets/index-DYctYhz_.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-CIoNjlRm.css">
+    <script>
+      // Paints the right theme before the bundle runs. Without this the page
+      // boots in the light palette and only turns dark once the account row
+      // answers, which on a phone is long enough to look like a white page.
+      (function () {
+        try {
+          var stored = sessionStorage.getItem('st_user_theme');
+          if (!stored) {
+            var raw = localStorage.getItem('st_user_settings');
+            if (raw) stored = JSON.parse(raw).settings.theme;
+          }
+          var dark = stored
+            ? /dark/i.test(stored)
+            : window.matchMedia('(prefers-color-scheme: dark)').matches;
+          document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+        } catch (e) {
+          /* Private browsing with storage blocked: the CSS default applies. */
+        }
+      })();
+    </script>
+    <script type="module" crossorigin src="/assets/index-C1CUu5Ni.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-BuZq6CtX.css">
   </head>
   <body>
     <div id="root"></div>
