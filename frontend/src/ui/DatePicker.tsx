@@ -14,8 +14,11 @@ interface DatePickerProps {
   placeholder?: string
   /** Earliest selectable day (ISO). Phones pass their five-year floor. */
   min?: string
-  /** Called when a day before `min` is tapped. The calendar keeps the day
-      visible but disabled, so the caller can explain the floor instead of
+  /** Latest selectable day (ISO). A backtest cannot start in the future, so
+      the run dialog passes today and the calendar stops there. */
+  max?: string
+  /** Called when a day outside `min`..`max` is tapped. The calendar keeps the
+      day visible but disabled, so the caller can explain the bound instead of
       leaving a dead cell. */
   onBlocked?: (dateStr: string) => void
 }
@@ -50,13 +53,25 @@ export default function DatePicker({
   error,
   placeholder = 'YYYY-MM-DD',
   min = MIN_DATE,
+  max,
   onBlocked,
 }: DatePickerProps) {
-  // Zero-padded ISO strings compare correctly as text, so the floor is one line.
+  // Zero-padded ISO strings compare correctly as text, so both bounds are one
+  // line each. An absent max leaves the calendar open-ended.
   const floor = min
   const floorYear = Number(floor.slice(0, 4))
   const floorMonth = Number(floor.slice(5, 7)) - 1
+  const ceiling = max && /^\d{4}-\d{2}-\d{2}$/.test(max) ? max : ''
+  const ceilingYear = ceiling ? Number(ceiling.slice(0, 4)) : Infinity
+  const ceilingMonth = ceiling ? Number(ceiling.slice(5, 7)) - 1 : 11
+  const lastYearPage = ceiling
+    ? Math.max(0, Math.floor((ceilingYear - floorYear) / YEARS_PER_PAGE))
+    : null
   const clampToMin = (dateStr: string) => (dateStr < floor ? floor : dateStr)
+  const clampToBounds = (dateStr: string) => {
+    const above = clampToMin(dateStr)
+    return ceiling && above > ceiling ? ceiling : above
+  }
   const [isOpen, setIsOpen] = useState(false)
   const [view, setView] = useState<CalendarView>('days')
   const [yearPage, setYearPage] = useState<number>(0)
@@ -148,11 +163,11 @@ export default function DatePicker({
     const val = e.target.value
     setInputValue(val)
     if (/^\d{4}-\d{2}-\d{2}$/.test(val)) {
-      const clamped = clampToMin(val)
+      const clamped = clampToBounds(val)
       setInputValue(clamped)
       onChange(clamped)
       // After onChange, because the form clears its old error there.
-      if (val < floor) onBlocked?.(val)
+      if (clamped !== val) onBlocked?.(val)
       const d = new Date(clamped + 'T00:00:00')
       if (!isNaN(d.getTime())) {
         setCurrentMonth(d.getMonth())
@@ -174,6 +189,7 @@ export default function DatePicker({
 
   const handleNextMonth = (e: React.MouseEvent) => {
     e.stopPropagation()
+    if (atLastMonth) return
     if (currentMonth === 11) {
       setCurrentMonth(0)
       setCurrentYear((y) => y + 1)
@@ -193,7 +209,7 @@ export default function DatePicker({
   }
 
   const handleSelectYear = (year: number) => {
-    const next = Math.max(floorYear, year)
+    const next = Math.min(ceilingYear, Math.max(floorYear, year))
     setCurrentYear(next)
     if (next === floorYear) setCurrentMonth(floorMonth)
     setView('months')
@@ -224,7 +240,7 @@ export default function DatePicker({
 
   const handleSelectDate = (d: number, m: number, y: number) => {
     const raw = toDateString(y, m, d)
-    if (raw < floor) {
+    if (raw < floor || (ceiling && raw > ceiling)) {
       onBlocked?.(raw)
       return
     }
@@ -237,6 +253,7 @@ export default function DatePicker({
   const yearPageStart = floorYear + yearPage * YEARS_PER_PAGE
   const pageYears = Array.from({ length: YEARS_PER_PAGE }, (_, i) => yearPageStart + i)
   const atFirstMonth = currentYear === floorYear && currentMonth === floorMonth
+  const atLastMonth = Boolean(ceiling) && currentYear === ceilingYear && currentMonth === ceilingMonth
 
   return (
     <div className="custom-datepicker-wrapper" ref={containerRef}>
@@ -312,7 +329,14 @@ export default function DatePicker({
                     {currentYear}
                   </button>
                 </div>
-                <Button type="button" variant="ghost" size="icon" onClick={handleNextMonth} aria-label="Next month">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={handleNextMonth}
+                  disabled={atLastMonth}
+                  aria-label="Next month"
+                >
                   &gt;
                 </Button>
               </div>
@@ -330,14 +354,14 @@ export default function DatePicker({
                   // every day before the floor (1–14 Nov 2021) match the
                   // selected date and light up as one solid block.
                   const isSelected = value === dateStr
-                  const belowFloor = dateStr < floor
+                  const outOfBounds = dateStr < floor || (Boolean(ceiling) && dateStr > ceiling)
 
                   return (
                     <button
                       key={idx}
                       type="button"
-                      aria-disabled={belowFloor}
-                      tabIndex={belowFloor ? -1 : undefined}
+                      aria-disabled={outOfBounds}
+                      tabIndex={outOfBounds ? -1 : undefined}
                       className={`cal-day-btn ${!isCurrentMonth ? 'outside-month' : ''} ${isSelected ? 'selected' : ''}`}
                       onClick={() => handleSelectDate(day, month, year)}
                     >
@@ -369,7 +393,8 @@ export default function DatePicker({
                   type="button"
                   variant="ghost"
                   size="icon"
-                  onClick={() => setCurrentYear((y) => y + 1)}
+                  onClick={() => setCurrentYear((y) => Math.min(ceilingYear, y + 1))}
+                  disabled={currentYear >= ceilingYear}
                   aria-label="Next year"
                 >
                   &gt;
@@ -411,7 +436,8 @@ export default function DatePicker({
                   type="button"
                   variant="ghost"
                   size="icon"
-                  onClick={() => setYearPage((p) => p + 1)}
+                  onClick={() => setYearPage((p) => (lastYearPage === null ? p + 1 : Math.min(lastYearPage, p + 1)))}
+                  disabled={lastYearPage !== null && yearPage >= lastYearPage}
                   aria-label="Next years"
                 >
                   &gt;
@@ -423,6 +449,8 @@ export default function DatePicker({
                   <button
                     key={year}
                     type="button"
+                    aria-disabled={year > ceilingYear}
+                    tabIndex={year > ceilingYear ? -1 : undefined}
                     className={`cal-option-btn ${year === currentYear ? 'selected' : ''}`}
                     onClick={() => handleSelectYear(year)}
                   >

@@ -6,8 +6,12 @@
 // back; these helpers convert them once, when the run starts.
 
 import { readStoredUserSettings } from '../../lib/settings';
+import { IS_MOBILE, MOBILE_HISTORY_START } from '../store/device';
 
 const STORAGE_KEY = 'sltp.lab.runSettings';
+
+/** First day of the dataset a desktop holds. */
+const HISTORY_START = '1998-01-01';
 
 export interface LabRunSettings {
   start: string;
@@ -117,11 +121,35 @@ export function saveLabRunSettings(settings: LabRunSettings): void {
   }
 }
 
+/**
+ * The first day a run can read on this device.
+ *
+ * A phone holds its plan's window, so a run may not start before the January
+ * that window begins. A desktop holds the whole dataset, which starts in 1998.
+ */
+export function earliestRunStart(): string {
+  return IS_MOBILE ? MOBILE_HISTORY_START : HISTORY_START;
+}
+
+/** Today, as the ISO day the pickers and the engine both use. */
+export function todayIso(today: Date = new Date()): string {
+  return localDate(today);
+}
+
 /** A problem the user can fix, or null when the values are usable. */
 export function validateLabRunSettings(settings: LabRunSettings): string | null {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(settings.start)) return 'Pick a start date.';
   if (settings.end && !/^\d{4}-\d{2}-\d{2}$/.test(settings.end)) {
     return 'Pick a valid end date, or clear it to run to the latest bar.';
+  }
+  // A date in the future has no bars behind it, so the engine would find an
+  // empty calendar and raise. Catch it here, where the fix is a picker.
+  const today = todayIso();
+  if (settings.start > today) return 'The start date cannot be in the future.';
+  if (settings.end && settings.end > today) return 'The end date cannot be in the future.';
+  const earliest = earliestRunStart();
+  if (settings.start < earliest) {
+    return `This device's market history starts on ${earliest}. Pick a later start date.`;
   }
   if (settings.end && settings.end < settings.start) {
     return 'The end date must be after the start date.';
@@ -145,6 +173,17 @@ export function validateLabRunSettings(settings: LabRunSettings): string | null 
     }
   }
   return null;
+}
+
+/**
+ * The engine reports an empty calendar as a bare ValueError. A run that never
+ * had a day to trade is a wrong window, not a broken strategy, so it says so.
+ */
+export function describeRunFailure(error: string): string {
+  if (/No trading days available/i.test(error)) {
+    return 'No trading days fall between the dates you chose. Widen the window and run again.';
+  }
+  return error;
 }
 
 function localDate(date: Date): string {

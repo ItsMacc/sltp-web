@@ -11,6 +11,8 @@ import DatePicker from '../ui/DatePicker';
 import Input from '../ui/Input';
 import {
   defaultLabRunSettings,
+  earliestRunStart,
+  todayIso,
   validateLabRunSettings,
   type LabRunSettings,
 } from './runSettings';
@@ -89,6 +91,8 @@ export default function LabRunSettingsDialog({
                 id="lab-run-start"
                 label="Start date"
                 value={draft.start}
+                min={earliestRunStart()}
+                max={todayIso()}
                 onChange={(next) => update('start', next)}
               />
               <div className="lab-run-settings-end">
@@ -96,6 +100,8 @@ export default function LabRunSettingsDialog({
                   id="lab-run-end"
                   label="End date (optional)"
                   value={draft.end}
+                  min={earliestRunStart()}
+                  max={todayIso()}
                   onChange={(next) => update('end', next)}
                 />
                 {draft.end && (

@@ -73,7 +73,9 @@ import LabRunProgress from '../lab/LabRunProgress';
 import LabRunSettingsDialog from '../lab/LabRunSettings';
 import {
   accountLabDefaults,
+  describeRunFailure,
   toEngineSettings,
+  validateLabRunSettings,
   type LabRunSettings,
 } from '../lab/runSettings';
 import { IS_MOBILE } from '../store/device';
@@ -767,6 +769,18 @@ export default function LabEditorPage({ project, workspaceName, onBack }: LabEdi
     const showsBacktest = !activeFile.locked
       && (STRATEGY_CLASS_RE.test(activeFile.draft) || BACKTESTER_RE.test(activeFile.draft));
     setRun(showsBacktest ? { startedAt, stage: 'Preparing the workspace…' } : null);
+    // Dates are checked before Python starts. A future start date has no bars
+    // behind it, and the engine's own answer is a bare ValueError that reads
+    // like a crash; here it is a sentence naming the field to change.
+    const settingsProblem = showsBacktest ? validateLabRunSettings(runSettings) : null;
+    if (settingsProblem) {
+      appendLine('stderr', settingsProblem);
+      setRun((current) => (current ? { ...current, error: settingsProblem } : current));
+      setRunning(false);
+      setRunStage(null);
+      setJediBusy(false);
+      return;
+    }
     appendLine('command', `$ run ${activeFile.name}`);
     try {
     const result = await runPython(
@@ -817,11 +831,10 @@ export default function LabEditorPage({ project, workspaceName, onBack }: LabEdi
     } else {
       appendLine('stderr', result.error ?? 'The run failed.');
       if (showsBacktest) {
-        setRun((current) =>
-          current
-            ? { ...current, error: result.error ?? 'The strategy stopped before a result was produced.' }
-            : current,
+        const failure = describeRunFailure(
+          result.error ?? 'The strategy stopped before a result was produced.',
         );
+        setRun((current) => (current ? { ...current, error: failure } : current));
       }
     }
     } finally {
