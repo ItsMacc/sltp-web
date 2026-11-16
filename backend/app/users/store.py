@@ -11,7 +11,6 @@
 
 # -------- Imports --------
 import json
-import os
 
 from typing import Any
 
@@ -177,33 +176,6 @@ def usage_counts() -> dict[str, int | None]:
         "deletions": _count("account_deletions", column="user_id"),
     }
 
-
-# -------- Tiers --------
-# The tier lives on the profile row, so it exists before anything is billed: the
-# first version of a plan is a name on an account, and the limits hang off it.
-# Tiers are listed here rather than in a table because a new one is a product
-# decision, not a row someone inserts at 2am.
-USER_TIERS: tuple[str, ...] = tuple(
-    part.strip().lower()
-    for part in (os.environ.get("USER_TIERS") or "free,plus,pro").split(",")
-    if part.strip()
-)
-
-
-def tier_counts() -> dict[str, int | None]:
-    counts: dict[str, int | None] = {tier: _count("users", params={"tier": f"eq.{tier}"}) for tier in USER_TIERS}
-    # Anything that does not match a configured tier still has to be visible, or
-    # a typo in the column reads as "nobody is on that plan".
-    total = _count("users")
-    known = [value for value in counts.values() if isinstance(value, int)]
-    counts["other"] = None if total is None or len(known) != len(counts) else max(total - sum(known), 0)
-    return counts
-
-
-def get_tier(user_id: str) -> str | None:
-    row = get_profile(user_id) or {}
-    value = row.get("tier")
-    return str(value) if value else None
 
 
 

@@ -118,8 +118,4 @@ async def get_current_user(authorization: str = Header(default="")) -> dict[str,
         "email": profile.get("email") or payload.get("email"),
         "name": profile.get("name") or payload.get("user_metadata", {}).get("name"),
         "settings": profile.get("settings") or {},
-        # Carried here so operator checks do not re-read the row; both are absent
-        # until schema.sql is pasted, and absent reads as the default account.
-        "role": profile.get("role"),
-        "tier": profile.get("tier"),
     }

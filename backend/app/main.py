@@ -31,7 +31,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from app.auth.security import router as security_router
 from app.lab.projects import router as lab_projects_router
 from app.lab.strategies import router as lab_strategies_router
-from app.ops.router import router as ops_router
 from app.registry import STRATEGIES, strategy_by_id
 from app.users.store import MissingTable
 from app.users.account import router as account_router
@@ -53,8 +52,6 @@ app.include_router(results_router)
 app.include_router(lab_projects_router)
 app.include_router(lab_strategies_router)
 app.include_router(security_router)
-# Operator views: 403 for everyone but the owner (see app/ops/access.py).
-app.include_router(ops_router)
 
 # CORS for the frontend (browser path calls this API from the site origin).
 @app.exception_handler(MissingTable)
