@@ -1,5 +1,5 @@
 // LabEditorPage.tsx — Lab project editor. A dark IDE frame with a file tree, tabs, a Monaco
-// editor checked live by Pyright (in a Web Worker), and a terminal.
+// editor checked live in the browser, and a terminal.
 //
 // A project has two packages:
 //   core/       the read-only engine (Strategy, PortfolioManager, Order, Trade,

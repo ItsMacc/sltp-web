@@ -4,6 +4,7 @@ import Button from '../ui/Button'
 import GuideTabs, { type GuideTab } from './GuideTabs'
 import { GlossaryText } from './GlossaryText'
 import { STRATEGY_GLOSSARY } from '../../lib/glossary'
+import { IS_MOBILE } from '../store/device'
 import './ResearchGuide.css'
 
 type CandlePart = 'open' | 'high' | 'low' | 'close' | 'body' | 'wick'
@@ -597,8 +598,9 @@ export default function CandlestickGuide() {
                 <div>
                   <span className="guide-step-title">Start wide</span>
                   <p>
-                    Use 5Y or all history to see the overall shape, then switch to 1Y when you
-                    want to study what happened recently.
+                    {IS_MOBILE
+                      ? 'Use 5Y to see the overall shape, then switch to 1Y when you want to study what happened recently. A phone holds five years of bars.'
+                      : 'Use 5Y or all history to see the overall shape, then switch to 1Y when you want to study what happened recently.'}
                   </p>
                 </div>
               </li>

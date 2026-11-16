@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import Button from '../ui/Button';
 import { startPageTour, type TourTab } from '../pageTours';
+import { IS_MOBILE } from '../store/device';
 import './SiteGuide.css';
 
 export interface SiteGuideProps {
@@ -200,7 +201,11 @@ export default function SiteGuide({ open, onClose, onNavigate, index, onIndexCha
           <SlidePage
             icon={LineChart}
             title="Research"
-            body="Start with any company you're curious about and pull up decades of its market history. Every chart on SLTP is drawn from the same deep dataset: over 11,500 symbols going back 28 years. Choose whatever window matters to you, from a single earnings season to the full history, and when you're ready, run any of our premade strategies across those exact dates to see how it would have handled the markets you actually lived through."
+            body={
+              IS_MOBILE
+                ? "Start with any company you're curious about and pull up its recent market history. Every chart on SLTP is drawn from the same dataset: over 11,500 symbols, with the five most recent years on a phone. Choose whatever window matters to you, from a single earnings season to those five years, and when you're ready, run any of our premade strategies across those exact dates to see how it would have handled the markets you actually lived through."
+                : "Start with any company you're curious about and pull up decades of its market history. Every chart on SLTP is drawn from the same deep dataset: over 11,500 symbols going back 28 years. Choose whatever window matters to you, from a single earnings season to the full history, and when you're ready, run any of our premade strategies across those exact dates to see how it would have handled the markets you actually lived through."
+            }
             ctaLabel="Take the tour"
             onCta={() => takeTour('research')}
           />
@@ -218,7 +223,7 @@ export default function SiteGuide({ open, onClose, onNavigate, index, onIndexCha
           <SlidePage
             icon={FlaskConical}
             title="Lab"
-            body="The Lab is where your own code lives: projects grouped into workspaces, a file explorer, an editor checked as you type, and a terminal beside it. Python runs in the browser, so Run works without a server; the strategy engine joins next."
+            body="The Lab is where your own code lives: projects grouped into workspaces, a file explorer, an editor checked as you type, and a terminal beside it. Python runs in the browser, so Run works without a server, and the same interpreter the strategy engine uses is already warm under it."
             ctaLabel="Take the tour"
             onCta={() => takeTour('lab')}
           />

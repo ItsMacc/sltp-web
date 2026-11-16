@@ -10,6 +10,7 @@
 // both tours wait for their anchors instead of assuming the DOM is ready.
 
 import { driver, type DriveStep, type Driver } from 'driver.js';
+import { IS_MOBILE } from './store/device';
 
 export type TourTab = 'strategies' | 'research' | 'lab';
 
@@ -114,8 +115,9 @@ const STRATEGY_STEPS = (): DriveStep[] => [
     element: '.strat-detail-foot',
     popover: {
       title: 'Then run it yourself',
-      description:
-        'This button opens Research with the strategy already picked, so you can put it over any dates you like and watch the equity curve build.',
+      description: IS_MOBILE
+        ? 'This button opens Research with the strategy already picked, so you can put it over any dates this phone holds and watch the equity curve build.'
+        : 'This button opens Research with the strategy already picked, so you can put it over any dates you like and watch the equity curve build.',
     },
   },
 ];
@@ -151,8 +153,11 @@ const RESEARCH_STEPS = (): DriveStep[] => [
     element: '.is-timeframe',
     popover: {
       title: 'How much history',
-      description:
-        'A week, a year, or the full record going back nearly three decades. The window you pick is the window the chart and every figure under it use.',
+      // A phone holds five calendar years, not the full record: the tour has to
+      // describe the buttons that are actually on that screen.
+      description: IS_MOBILE
+        ? 'A week, a year, or the five years this phone holds. The window you pick is the window the chart and every figure under it use.'
+        : 'A week, a year, or the full record going back nearly three decades. The window you pick is the window the chart and every figure under it use.',
     },
   },
   {
@@ -229,8 +234,11 @@ const LAB_STEPS = (): DriveStep[] => {
     element: '.lab-ws-toolbar',
     popover: {
       title: 'Find one, or start another',
-      description:
-        'Search workspaces and files by name, press the slash key from anywhere on the page to jump here, or change the sort. New workspace sets up an empty workspace for your next idea.',
+      // A phone has no slash key to press, so the tour only names the controls
+      // the reader can actually reach with a finger.
+      description: IS_MOBILE
+        ? 'Search workspaces and files by name, or change the sort. New workspace sets up an empty workspace for your next idea.'
+        : 'Search workspaces and files by name, press the slash key from anywhere on the page to jump here, or change the sort. New workspace sets up an empty workspace for your next idea.',
     },
   },
   {
@@ -282,16 +290,18 @@ const LAB_STEPS = (): DriveStep[] => {
     element: '.lab-editor-surface',
     popover: {
       title: 'An editor that checks as you type',
-      description:
-        'Pyright runs in the browser: names complete, hovers explain types, and mistakes are underlined before the file is run. Cmd or Ctrl and S saves; unsaved files show a dot on the tab.',
+      description: IS_MOBILE
+        ? 'The checker runs in the browser: names complete, hovers explain types, and mistakes are underlined before the file is run. The save button sits beside the file tabs; unsaved files show a dot on the tab.'
+        : 'The checker runs in the browser: names complete, hovers explain types, and mistakes are underlined before the file is run. Cmd or Ctrl and S saves; unsaved files show a dot on the tab.',
     },
   },
   {
     element: '.lab-terminal',
     popover: {
       title: 'Logs and runs',
-      description:
-        'Run executes the open file and prints into Logs, with the interpreter status beside the tab. A Strategy opens a backtest report; a plain script just prints here. Cmd or Ctrl and Enter runs from inside the editor as well.',
+      description: IS_MOBILE
+        ? 'Run executes the open file and prints into Logs, with the interpreter status beside the tab. A Strategy opens a backtest report; a plain script just prints here.'
+        : 'Run executes the open file and prints into Logs, with the interpreter status beside the tab. A Strategy opens a backtest report; a plain script just prints here. Cmd or Ctrl and Enter runs from inside the editor as well.',
     },
   },
   );
