@@ -238,6 +238,10 @@ function EquityChart({ result, fileName }: { result: LabBacktestPayload; fileNam
 
   const hoverPoint = hover === null ? null : result.equity[hover] ?? null;
   const hoverBenchmark = hover === null ? null : benchmarkValues[hover];
+  // The two ends of the curve, so the tooltip carries the whole run's span
+  // without the reader panning to either edge.
+  const equityStart = result.equity[0]?.value ?? 0;
+  const equityEnd = result.equity.length > 0 ? result.equity[result.equity.length - 1].value : 0;
 
   const handlePointerMove = (event: ReactPointerEvent<SVGSVGElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
@@ -349,6 +353,12 @@ function EquityChart({ result, fileName }: { result: LabBacktestPayload; fileNam
                 <span>{hoverBenchmark.toFixed(2)}</span>
               </span>
             )}
+            <span className="lab-results-tip-row is-anchor">
+              <span>Start {equityStart.toFixed(2)}</span>
+            </span>
+            <span className="lab-results-tip-row is-anchor">
+              <span>End {equityEnd.toFixed(2)}</span>
+            </span>
           </div>
         )}
       </div>

@@ -480,6 +480,10 @@ export default function Chart({
   const hoverIndex = hover && hover.index < windowData.length ? hover.index : null
   const activeIndex = hoverIndex ?? (pinnedIndex >= 0 ? pinnedIndex : null)
   const activeBar = activeIndex !== null ? windowData[activeIndex] : undefined
+  // An equity curve's two anchors, so a tooltip can say where the run started
+  // and where it finished without the reader hunting for the ends.
+  const equityStart = bars.length > 0 ? bars[0].close : 0
+  const equityEnd = bars.length > 0 ? bars[bars.length - 1].close : 0
   const isTouch =
     typeof window !== 'undefined' &&
     window.matchMedia('(pointer: coarse), (max-width: 47.999rem)').matches
@@ -504,7 +508,7 @@ export default function Chart({
   const changePct = first && last && first.close !== 0 ? (change / first.close) * 100 : 0
 
   const tooltipWidth = Math.min(168, Math.max(136, plotWidth * 0.46))
-  const tooltipHeight = variant === 'equity' ? 96 : 160
+  const tooltipHeight = variant === 'equity' ? 124 : 160
   const maxTop = Math.max(8, height - PADDING_BOTTOM - tooltipHeight - 8)
   const spaceRight = plotWidth - activeX - TOOLTIP_GAP
   const spaceLeft = activeX - TOOLTIP_GAP
@@ -642,6 +646,10 @@ export default function Chart({
                 <dl className="chart-tooltip-grid">
                   <dt>Value</dt>
                   <dd>{valueFormatter(activeBar.close)}</dd>
+                  <dt>Start</dt>
+                  <dd>{valueFormatter(equityStart)}</dd>
+                  <dt>End</dt>
+                  <dd>{valueFormatter(equityEnd)}</dd>
                   <dt>Day</dt>
                   <dd className={activeBar.close >= activeBar.open ? 'is-up' : 'is-down'}>
                     {activeBar.open !== 0

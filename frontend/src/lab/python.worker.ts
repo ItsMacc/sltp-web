@@ -13,15 +13,15 @@
 // and if that fails too the Lab still runs plain Python, with the reason shown
 // in the status bar.
 
-import { getFile, hasFile, pruneWheels, putFile } from '../store/opfs';
+import { pruneWheels } from '../store/opfs';
+import { installWheel } from '../store/wheels';
 import type { EngineRunSettings } from './runSettings';
 
 /** Pinned Pyodide build: the same distribution the engine worker uses. */
 const PYODIDE_INDEX_URL = 'https://cdn.jsdelivr.net/pyodide/v314.0.7/full/';
 /** Engine pin: matches backend/requirements.txt. */
 const SLTP_VERSION = '0.1.39';
-/** Pure-Python date library the strategy base imports. */
-const DATEUTIL_VERSION = '2.9.0';
+
 /** The editor's analyser. Pure Python like the engine wheels, so it is cached
     in OPFS too: a warm visit installs it from disk instead of PyPI. parso is
     jedi's only dependency and installs first, so micropip never goes out for
@@ -30,10 +30,6 @@ const JEDI_VERSION = '0.20.1';
 const PARSO_VERSION = '0.8.7';
 const PYFLAKES_VERSION = '4.1.0';
 
-/** Where the resolved PyPI filename for each pinned build is remembered. */
-const RESOLVED_KEY = 'WHEELS/resolved.json';
-type ResolvedWheel = { filename: string; url: string };
-let resolvedCache: Record<string, ResolvedWheel> | null = null;
 
 interface PyodideApi {
   runPython: (code: string) => unknown;
@@ -788,81 +784,6 @@ async function loadPyodideAtPin(): Promise<PyodideApi> {
   return module.loadPyodide({ indexURL: PYODIDE_INDEX_URL });
 }
 
-/** Exact wheel URL for a pinned pure-Python release, via the PyPI API. */
-async function pypiWheelUrl(name: string, version: string): Promise<{ filename: string; url: string }> {
-  const res = await fetch(`https://pypi.org/pypi/${name}/${version}/json`);
-  if (!res.ok) throw new Error(`PyPI lookup failed for ${name}==${version} (${res.status})`);
-  const meta = (await res.json()) as { urls?: { filename: string; url: string }[] };
-  const pure = (meta.urls ?? []).find(
-    (u) => u.filename.endsWith('.whl') && !u.filename.includes('cp') && !u.filename.includes('pp'),
-  );
-  const wheel = pure ?? (meta.urls ?? []).find((u) => u.filename.endsWith('.whl'));
-  if (!wheel) throw new Error(`No wheel found for ${name}==${version}`);
-  return { filename: wheel.filename, url: wheel.url };
-}
-
-/**
- * One pinned wheel: OPFS on a hit, PyPI (then stored) on a miss. Installs
- * through micropip's `emfs:` scheme, which reads the file written below. Any
- * OPFS trouble falls back to a plain PyPI install so a locked-down browser
- * still gets the engine.
- */
-/**
- * The PyPI filename for each pinned build, remembered in OPFS. The answer
- * never changes for a pin, so a warm visit asks PyPI nothing at all — the
- * lookup used to cost one round trip per wheel on every boot.
- */
-async function resolvedTable(): Promise<Record<string, ResolvedWheel>> {
-  if (resolvedCache) return resolvedCache;
-  try {
-    const stored = await getFile(RESOLVED_KEY);
-    resolvedCache = stored ? (JSON.parse(await stored.text()) as Record<string, ResolvedWheel>) : {};
-  } catch {
-    resolvedCache = {};
-  }
-  return resolvedCache;
-}
-
-async function rememberWheel(key: string, entry: ResolvedWheel): Promise<void> {
-  const table = await resolvedTable();
-  table[key] = entry;
-  try {
-    await putFile(RESOLVED_KEY, new Blob([JSON.stringify(table)], { type: 'application/json' }));
-  } catch {
-    /* a write that fails only costs one lookup next boot */
-  }
-}
-
-async function installWheel(
-  pyodide: PyodideApi,
-  micropip: { install: (requirement: string) => Promise<unknown> },
-  name: string,
-  version: string,
-): Promise<{ cached: boolean; filename: string | null }> {
-  try {
-    const pin = `${name}==${version}`;
-    const known = (await resolvedTable())[pin];
-    const { filename, url } = known ?? (await pypiWheelUrl(name, version));
-    if (!known) await rememberWheel(pin, { filename, url });
-    const key = `WHEELS/${filename}`;
-    let cached = true;
-    if (!(await hasFile(key))) {
-      cached = false;
-      const res = await fetch(url);
-      if (!res.ok) throw new Error(`Wheel download failed for ${filename} (${res.status})`);
-      await putFile(key, new Blob([await res.arrayBuffer()]));
-    }
-    const file = await getFile(key);
-    if (!file) throw new Error(`Wheel vanished after download: ${filename}`);
-    pyodide.FS.writeFile(`/tmp/${filename}`, new Uint8Array(await file.arrayBuffer()));
-    await micropip.install(`emfs:/tmp/${filename}`);
-    return { cached, filename };
-  } catch {
-    await micropip.install(`${name}==${version}`);
-    return { cached: false, filename: null };
-  }
-}
-
 async function boot(): Promise<void> {
   if (pyodide) return;
 
@@ -911,14 +832,13 @@ async function boot(): Promise<void> {
   const keepWheels: string[] = [];
   try {
     post({ type: 'status', text: 'Installing numpy…' });
-    await instance.loadPackage(['micropip', 'numpy']);
+    // python-dateutil ships in the Pyodide distribution, the same way numpy
+    // does, so sltp is the only thing pip has to install here.
+    await instance.loadPackage(['micropip', 'numpy', 'python-dateutil']);
     post({ type: 'status', text: 'Installing the trading engine…' });
     const micropip = instance.pyimport('micropip');
     const sltpWheel = await installWheel(instance, micropip, 'sltp', SLTP_VERSION);
-    const dateutilWheel = await installWheel(instance, micropip, 'python-dateutil', DATEUTIL_VERSION);
-    keepWheels.push(
-      ...[sltpWheel.filename, dateutilWheel.filename].filter((name): name is string => name !== null),
-    );
+    keepWheels.push(...[sltpWheel.filename].filter((name): name is string => name !== null));
     engineReady = true;
   } catch (error) {
     engineError = error instanceof Error ? error.message : String(error);

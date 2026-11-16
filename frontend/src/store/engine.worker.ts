@@ -16,9 +16,12 @@
 // main thread cannot do it), landing in the same mounted files.
 //
 // Dependencies come from the Pyodide distribution and sltp is the one pip
-// install, so a boot talks to PyPI for that wheel and nothing else. The
-// market bytes are already on disk in OPFS.
+// install. That wheel rides OPFS like the Lab's do (WHEELS/ plus the resolved
+// PyPI filename), so only a first visit talks to PyPI at all. The market bytes
+// are already on disk in OPFS.
 
+
+import { installWheel } from './wheels';
 
 /** Pinned runtime: the full build serves loadPyodide plus every wheel. */
 const PYODIDE_INDEX_URL = 'https://cdn.jsdelivr.net/pyodide/v314.0.7/full/';
@@ -34,7 +37,7 @@ interface PyodideApi {
   runPythonAsync: (code: string) => Promise<unknown>;
   pyimport: (name: string) => { install: (requirement: string) => Promise<unknown> };
   globals: { get: (name: string) => (...args: unknown[]) => unknown };
-  FS: { mkdirTree: (path: string) => void };
+  FS: { mkdirTree: (path: string) => void; writeFile: (path: string, data: Uint8Array) => void };
   mountNativeFS: (mountpoint: string, handle: FileSystemDirectoryHandle) => Promise<unknown>;
 }
 
@@ -415,10 +418,10 @@ async function boot(strategies: StrategyInit[]): Promise<void> {
   await instance.mountNativeFS('/home/pyodide/.sltp/cache', cacheHandle);
   cacheMounted = true;
   step('cache');
-  // The one pip install. Everything sltp imports is already loaded, so
-  // micropip has nothing else to resolve.
+  // The one pip install, from the shared OPFS wheel cache: a warm visit reads
+  // the wheel and its PyPI filename off disk and asks PyPI nothing.
   const micropip = instance.pyimport('micropip');
-  await micropip.install(`sltp==${SLTP_VERSION}`);
+  await installWheel(instance, micropip, 'sltp', SLTP_VERSION);
   step('wheels');
   await instance.runPythonAsync(BOOTSTRAP + FETCH_BRIDGE);
   step('engine');

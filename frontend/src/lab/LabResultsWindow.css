@@ -370,6 +370,12 @@
   font-size: var(--text-xs);
 }
 
+/* The curve's two ends ride under the hovered values, quieter than them. */
+.lab-results-tip-row.is-anchor {
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+}
+
 /* ---------- Metrics ---------- */
 
 .lab-results-metrics {
