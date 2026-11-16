@@ -627,7 +627,7 @@ export default function SettingsPage({ userId, userEmail, initialName, onProfile
                   />
                   <span className="st-settings-hint">
                     How often this browser asks for fresh market data. This is only the daily
-                    Open, High, Low and Close prices we publish \u2014 not your portfolio, your
+                    Open, High, Low and Close prices we publish — not your portfolio, your
                     projects or anything else you own, which are saved to your account as usual.
                   </span>
                   <span className="st-settings-hint">
