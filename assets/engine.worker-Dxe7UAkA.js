@@ -9,16 +9,6 @@ _STRATEGIES = {}
 # instead of leaving the reader staring at a spinner.
 _IO_STATS = {"io_seconds": 0.0, "io_calls": 0}
 
-def _probe(stage, **detail):
-    # JSON string, not a Python object: the page persists it immediately, so
-    # the last checkpoint survives a WebKit process kill.
-    try:
-        from js import postMessage
-        postMessage(json.dumps({"kind": "probe", "stage": stage, "detail": json.dumps(detail, default=str)}))
-    except Exception:
-        pass
-
-
 
 
 
@@ -142,19 +132,14 @@ def _install_shared_bulk_cache():
     def shared_bulk(symbols, start, end):
         if len(symbols) <= service.SYMBOL_CACHE_LIMIT:
             return original(symbols, start, end)
-        _probe("bulk.begin", requested=len(symbols))
         try:
             universe = service.get_all_tickers()
-            _probe("bulk.universe", count=len(universe))
             histories = original(universe, start, end)
-            _probe("bulk.histories", count=len(histories))
         except Exception as error:
-            _probe("bulk.error", error=str(error))
             # The canonical read is an optimisation. If the catalog is
             # unavailable, let the engine take its normal path.
             return original(symbols, start, end)
         result = {symbol: histories[symbol] for symbol in symbols if symbol in histories}
-        _probe("bulk.done", returned=len(result))
         return result
 
     service._sltp_original_bulk_histories = original
@@ -169,9 +154,7 @@ def run_strategy(key, start, end):
     from sltp.data import market_data_service as _market
     from sltp.web import to_jsonable
 
-    _probe("run.enter", key=key, start=start, end=end)
     _install_shared_bulk_cache()
-    _probe("run.shared-cache.ready")
 
     # A new date window invalidates the old decoded bars. Release them before
     # the new read instead of waiting for the cache limit to evict them after
@@ -179,14 +162,12 @@ def run_strategy(key, start, end):
     global _LAST_RUN_WINDOW
     window = (start, end or None)
     if _LAST_RUN_WINDOW != window:
-        _probe("run.cache-clear.begin")
         with _market._LOAD_LOCK:
             _market._BULK_CACHE.clear()
             _market.refresh_market_data_cache()
         _LAST_RUN_WINDOW = window
         import gc as _gc
         _gc.collect()
-        _probe("run.cache-clear.done")
 
     # Time the bar reads. The backtester imported _get_histories by name, so
     # both module globals are patched; the timer is restored afterwards so a
@@ -217,10 +198,8 @@ def run_strategy(key, start, end):
 
     cls = _STRATEGIES[key]
     _started = time.perf_counter()
-    _probe("run.backtester.begin")
     try:
         result = Backtester(cls(), start, end or None).run()
-        _probe("run.backtester.done")
     finally:
         _run_seconds = time.perf_counter() - _started
         _backtester._get_histories = _original_backtester
@@ -230,7 +209,6 @@ def run_strategy(key, start, end):
     # a point never dies inside to_jsonable with a bare KeyError. Anything
     # else fails loud, naming the keys, the range and the engine version.
     stamp = result.get("stamp") or {}
-    _probe("run.equity.begin", points=len(result.get("equity") or []))
     equity = []
     for point in result.get("equity") or []:
         if "portfolio_value" in point:
@@ -256,14 +234,11 @@ def run_strategy(key, start, end):
     # Hand back the text and let the tray of equity/trade objects go: Safari
     # kills a tab that keeps a finished five-year result resident, which is
     # what a reader sees as the page reloading itself.
-    _probe("run.serialize.begin")
     text = json.dumps(payload)
-    _probe("run.serialize.done", chars=len(text))
     payload = None
     result = None
     import gc as _gc
     _gc.collect()
-    _probe("run.done")
     return text
 
 
@@ -273,9 +248,7 @@ LAB_HISTORIES = {}
 
 def load_all_market_data(start="2022-01-01", end=None, chunk_size=1000):
     from sltp.data import market_data_service as service
-    _probe("lab.load.begin", start=start, end=end, chunk=chunk_size)
     universe = service.get_all_tickers()
-    _probe("lab.universe", tickers=len(universe))
     # Use the undecorated reader so each 1,000-ticker batch is actually a
     # separate batch instead of the shared-cache wrapper decoding the world.
     reader = getattr(service, "_sltp_original_bulk_histories", service._bulk_histories)
@@ -283,20 +256,12 @@ def load_all_market_data(start="2022-01-01", end=None, chunk_size=1000):
     started = time.perf_counter()
     for offset in range(0, len(universe), chunk_size):
         batch = universe[offset:offset + chunk_size]
-        _probe("lab.chunk.begin", offset=offset, count=len(batch), loaded=len(histories))
         try:
             part = reader(batch, start, end or None)
             histories.update(part)
         except Exception as error:
-            _probe("lab.chunk.error", offset=offset, error=str(error))
             continue
         elapsed = time.perf_counter() - started
-        _probe(
-            "LOADED %d tickers in %.1fs" % (len(histories), elapsed),
-            loaded=len(histories),
-            seconds=round(elapsed, 1),
-            total=len(universe),
-        )
     rows = 0
     for frame in histories.values():
         try:
@@ -305,7 +270,6 @@ def load_all_market_data(start="2022-01-01", end=None, chunk_size=1000):
             pass
     globals()["LAB_UNIVERSE"] = universe
     globals()["LAB_HISTORIES"] = histories
-    _probe("lab.load.done", tickers=len(histories), rows=rows)
     return json.dumps({"tickers": len(histories), "universe": len(universe), "rows": rows})
 
 
