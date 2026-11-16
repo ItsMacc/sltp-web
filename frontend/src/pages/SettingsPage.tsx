@@ -702,15 +702,16 @@ export default function SettingsPage({ userId, userEmail, initialName, onProfile
                             }.`
                           : storageReport.unavailable ?? 'Nothing stored yet.'}
                       </span>
-                      {storageReport.usageBytes !== null && (
+                      {storageReport.quotaBytes !== null && (
                         <span className="st-settings-hint">
-                          The browser counts {formatBytes(storageReport.usageBytes)}
-                          {storageReport.quotaBytes !== null
-                            ? ` of ${formatBytes(storageReport.quotaBytes)} allowed for this site`
-                            : ''}
-                          .
+                          The browser allows this site up to {formatBytes(storageReport.quotaBytes)}.
                         </span>
                       )}
+                      <span className="st-settings-hint">
+                        Only the figure above is measured. The browser&apos;s own usage estimate is
+                        padded to stop sites reading your disk, and on iOS it can count the whole
+                        app container rather than this site, so it is not shown here.
+                      </span>
                     </>
                   )}
                 </div>
