@@ -16,9 +16,11 @@
   width: min(520px, 100%);
   max-height: min(86vh, 700px);
   overflow: auto;
-  background: var(--bg-surface);
+  /* The page's own colour, not the surface card: on a light theme the surface is
+     near-white and the panel read as a blank page behind the app. */
+  background: var(--bg-canvas);
   color: var(--text-primary);
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--border-strong);
   border-radius: 14px;
   box-shadow: 0 24px 60px rgb(0 0 0 / 22%);
 }
@@ -72,6 +74,7 @@
 /* One bordered list reads cleaner than three floating cards. */
 .data-plan-facts {
   margin: 0;
+  background: var(--bg-surface);
   border: 1px solid var(--border-subtle);
   border-radius: 10px;
   overflow: hidden;
@@ -161,7 +164,7 @@
   gap: 8px;
   padding: 12px 16px 14px;
   border-top: 1px solid var(--border-subtle);
-  background: var(--bg-surface-hover);
+  background: var(--bg-canvas);
 }
 
 @media (max-width: 480px) {
