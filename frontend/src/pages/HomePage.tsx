@@ -15,7 +15,6 @@ function GithubIcon({ size = 18, className }: { size?: number; className?: strin
   );
 }
 import Button from '../ui/Button';
-import { IS_MOBILE } from '../store/device';
 import './HomePage.css';
 
 interface HomePageProps {
@@ -40,11 +39,10 @@ const TOOLS: ToolData[] = [
     id: 'research',
     nav: 'research',
     title: 'Research',
-    // A phone holds the last five years, so the promise here has to match the
-    // window the app can actually open on the device reading it.
-    description: IS_MOBILE
-      ? 'Access daily price data and historical performance spanning across 11,000+ securities and the last five years of market history along with a backtest engine to see how our strategies have performed in the past.'
-      : 'Access daily price data and historical performance spanning across 11,000+ securities and nearly 3 decades of market history along with a backtest engine to see how our strategies have performed in the past.',
+    // The site's dataset is the same wherever it is read, and this is the
+    // pitch; what a given device keeps cached is stated on the page itself.
+    description:
+      'Access daily price data and historical performance spanning across 11,000+ securities and nearly 3 decades of market history along with a backtest engine to see how our strategies have performed in the past.',
     cta: 'Open research',
     icon: LineChart,
   },
