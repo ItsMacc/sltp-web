@@ -554,6 +554,28 @@
   color: var(--error);
 }
 
+/* ---------- Desktop type scale ----------
+   The settings page is read, not scanned: every hint, field and label is a
+   sentence someone has to follow. At the app's body scale the 13.6px hints look
+   like footnotes on a wide screen, so this page raises its own token scale and
+   the components inside it (inputs, radios, checkboxes, buttons) follow through
+   the same variables. Phones keep the app scale, where 13.6px is right. */
+@media (min-width: 48.01rem) {
+  .st-settings-layout {
+    --text-xs: 0.9375rem;
+    --text-sm: 1.0625rem;
+    --text-base: 1.1875rem;
+  }
+
+  .st-settings-hint {
+    line-height: 1.65;
+  }
+
+  .st-settings-label {
+    margin-bottom: 0.55rem;
+  }
+}
+
 @media (max-width: 480px) {
   /* The name field keeps its width; the button takes the line below it rather
      than squeezing the label into a second row. */
