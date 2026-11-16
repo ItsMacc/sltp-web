@@ -1,4 +1,4 @@
-(function(){let e=new Map;function t(){return typeof navigator<`u`&&!!navigator.storage?.getDirectory}function n(){return!t()}async function r(e){try{let t=new Set(e),n=(await c(`WHEELS`)).filter(e=>e.endsWith(`.whl`)&&!t.has(e));return await Promise.all(n.map(e=>u(`WHEELS/${e}`))),n}catch{return[]}}async function i(e){return(await navigator.storage.getDirectory()).getDirectoryHandle(`sltp-market`,{create:e})}async function a(e,t){let n=e.split(`/`).filter(Boolean),r=n.pop(),a=await i(t);for(let e of n)a=await a.getDirectoryHandle(e,{create:t});return{dir:a,name:r}}async function o(t){if(e.has(t))return!0;if(n())return!1;try{let{dir:e,name:n}=await a(t,!1);return await e.getFileHandle(n),!0}catch{return!1}}async function s(t){let r=e.get(t);if(r)return new File([r],t.split(`/`).pop()||t,{type:r.type});if(n())return null;try{let{dir:e,name:n}=await a(t,!1);return(await e.getFileHandle(n)).getFile()}catch{return null}}async function c(t){let r=t.replace(/\/$/,``)+`/`,a=[...e.keys()].filter(e=>e.startsWith(r)).map(e=>e.slice(r.length));if(n())return a;let o=[...a],s=async(e,t)=>{for await(let n of e.values())n.kind===`file`?o.push(t+n.name):n.kind===`directory`&&await s(n,`${t}${n.name}/`)};try{let e=t.split(`/`).filter(Boolean),n=await i(!1);for(let t of e)n=await n.getDirectoryHandle(t);await s(n,``)}catch{}return o}async function l(t,r){if(n()){e.set(t,r);return}let{dir:i,name:o}=await a(t,!0),s=await(await i.getFileHandle(o,{create:!0})).createWritable();try{await s.write(r)}finally{await s.close()}}async function u(t){if(e.delete(t),!n())try{let{dir:e,name:n}=await a(t,!1);await e.removeEntry(n)}catch{}}let d=`https://cdn.jsdelivr.net/pyodide/v314.0.7/full/`;async function f(){return(await import(`${d}pyodide.mjs`)).loadPyodide({indexURL:d})}async function p(e,t){let n=await fetch(`https://pypi.org/pypi/${e}/${t}/json`);if(!n.ok)throw Error(`PyPI lookup failed for ${e}==${t} (${n.status})`);let r=await n.json(),i=(r.urls??[]).find(e=>e.filename.endsWith(`.whl`)&&!e.filename.includes(`cp`)&&!e.filename.includes(`pp`))??(r.urls??[]).find(e=>e.filename.endsWith(`.whl`));if(!i)throw Error(`No wheel found for ${e}==${t}`);return{filename:i.filename,url:i.url}}async function m(e,t,n,r){let{filename:i,url:a}=await p(n,r),c=`WHEELS/${i}`,u=!0;if(!await o(c)){u=!1;let e=await fetch(a);if(!e.ok)throw Error(`Wheel download failed for ${i} (${e.status})`);await l(c,new Blob([await e.arrayBuffer()]))}let d=await s(c);if(!d)throw Error(`Wheel vanished after download: ${i}`);return e.FS.writeFile(`/tmp/${i}`,new Uint8Array(await d.arrayBuffer())),await t.install(`emfs:/tmp/${i}`),{cached:u,filename:i}}let h=null,g=!1,_=!1,v=!1;function y(e,t,n,r,i,a){self.postMessage({id:e,kind:t,ok:n,data:r,error:i,...a})}async function b(e){if(g)return _;let t=performance.now(),n=e=>{let n=performance.now();self.postMessage({kind:`progress`,stage:e,ms:Math.round(n-t)}),t=n},i=await f();h=i,n(`python`),await i.loadPackage([`micropip`,`numpy`]),n(`numpy`);try{let e=await(await navigator.storage.getDirectory()).getDirectoryHandle(`sltp-market`,{create:!0});i.FS.mkdirTree(`/home/pyodide/.sltp/cache`),await i.mountNativeFS(`/home/pyodide/.sltp/cache`,e),v=!0}catch{}n(`cache`);let a=i.pyimport(`micropip`),o=await Promise.all([m(i,a,`sltp`,`0.1.38`),m(i,a,`python-dateutil`,`2.9.0`)]);await r(o.map(e=>e.filename)),n(`wheels`),await i.runPythonAsync(`
+(function(){let e=new Map;function t(){return typeof navigator<`u`&&!!navigator.storage?.getDirectory}function n(){return!t()}async function r(e){try{let t=new Set(e),n=(await c(`WHEELS`)).filter(e=>e.endsWith(`.whl`)&&!t.has(e));return await Promise.all(n.map(e=>u(`WHEELS/${e}`))),n}catch{return[]}}async function i(e){return(await navigator.storage.getDirectory()).getDirectoryHandle(`sltp-market`,{create:e})}async function a(e,t){let n=e.split(`/`).filter(Boolean),r=n.pop(),a=await i(t);for(let e of n)a=await a.getDirectoryHandle(e,{create:t});return{dir:a,name:r}}async function o(t){if(e.has(t))return!0;if(n())return!1;try{let{dir:e,name:n}=await a(t,!1);return await e.getFileHandle(n),!0}catch{return!1}}async function s(t){let r=e.get(t);if(r)return new File([r],t.split(`/`).pop()||t,{type:r.type});if(n())return null;try{let{dir:e,name:n}=await a(t,!1);return(await e.getFileHandle(n)).getFile()}catch{return null}}async function c(t){let r=t.replace(/\/$/,``)+`/`,a=[...e.keys()].filter(e=>e.startsWith(r)).map(e=>e.slice(r.length));if(n())return a;let o=[...a],s=async(e,t)=>{for await(let n of e.values())n.kind===`file`?o.push(t+n.name):n.kind===`directory`&&await s(n,`${t}${n.name}/`)};try{let e=t.split(`/`).filter(Boolean),n=await i(!1);for(let t of e)n=await n.getDirectoryHandle(t);await s(n,``)}catch{}return o}async function l(t,r){if(n()){e.set(t,r);return}let{dir:i,name:o}=await a(t,!0),s=await(await i.getFileHandle(o,{create:!0})).createWritable();try{await s.write(r)}finally{await s.close()}}async function u(t){if(e.delete(t),!n())try{let{dir:e,name:n}=await a(t,!1);await e.removeEntry(n)}catch{}}let d=`https://cdn.jsdelivr.net/pyodide/v314.0.7/full/`;async function f(){return(await import(`${d}pyodide.mjs`)).loadPyodide({indexURL:d})}async function p(e,t){let n=await fetch(`https://pypi.org/pypi/${e}/${t}/json`);if(!n.ok)throw Error(`PyPI lookup failed for ${e}==${t} (${n.status})`);let r=await n.json(),i=(r.urls??[]).find(e=>e.filename.endsWith(`.whl`)&&!e.filename.includes(`cp`)&&!e.filename.includes(`pp`))??(r.urls??[]).find(e=>e.filename.endsWith(`.whl`));if(!i)throw Error(`No wheel found for ${e}==${t}`);return{filename:i.filename,url:i.url}}async function m(e,t,n,r){let{filename:i,url:a}=await p(n,r),c=`WHEELS/${i}`,u=!0;if(!await o(c)){u=!1;let e=await fetch(a);if(!e.ok)throw Error(`Wheel download failed for ${i} (${e.status})`);await l(c,new Blob([await e.arrayBuffer()]))}let d=await s(c);if(!d)throw Error(`Wheel vanished after download: ${i}`);return e.FS.writeFile(`/tmp/${i}`,new Uint8Array(await d.arrayBuffer())),await t.install(`emfs:/tmp/${i}`),{cached:u,filename:i}}let h=null,g=!1,_=!1,v=!1;function y(e,t,n,r,i,a){self.postMessage({id:e,kind:t,ok:n,data:r,error:i,...a})}async function b(e){if(g)return _;let t=performance.now(),n=e=>{let n=performance.now();self.postMessage({kind:`progress`,stage:e,ms:Math.round(n-t)}),t=n},i=await f();h=i,n(`python`),await i.loadPackage([`micropip`,`numpy`]),n(`numpy`);try{let e=await(await navigator.storage.getDirectory()).getDirectoryHandle(`sltp-market`,{create:!0});i.FS.mkdirTree(`/home/pyodide/.sltp/cache`),await i.mountNativeFS(`/home/pyodide/.sltp/cache`,e),v=!0}catch{}n(`cache`);let a=i.pyimport(`micropip`),o=await Promise.all([m(i,a,`sltp`,`0.1.39`),m(i,a,`python-dateutil`,`2.9.0`)]);await r(o.map(e=>e.filename)),n(`wheels`),await i.runPythonAsync(`
 import json
 import time
 
@@ -8,98 +8,6 @@ _STRATEGIES = {}
 # day loop itself. Printed in the UI, so a slow phone names its bottleneck
 # instead of leaving the reader staring at a spinner.
 _IO_STATS = {"io_seconds": 0.0, "io_calls": 0}
-
-
-
-
-
-
-def _install_flat_market_reader():
-    # sltp 0.1.38 reads market_data_*.parquet only. The bucket now carries
-    # self-contained .bin bundles, so patch the bar-file discovery and the
-    # history/calendar readers. Actions and the catalog stay parquet.
-    import json
-    import os
-    import re
-    import struct
-    import numpy as np
-    from sltp.data import market_data_service as m
-
-    if getattr(m, "_sltp_flat_reader", False):
-        return
-
-    m.CHUNK_PATTERN = re.compile(r"^market_data_(d{4}).bin$")
-    m.RECENT_FILE = os.path.join(m.MARKET_DIR, "market_data_recent.bin")
-
-    def _read_bundle(path):
-        with open(path, "rb") as handle:
-            raw = handle.read()
-        magic, fmt, header_len, rows = struct.unpack_from("<8sIIQ", raw, 0)
-        if magic != b"SLTPFLAT" or fmt != 1:
-            raise RuntimeError(f"not a flat market bundle: {path}")
-        header = json.loads(raw[24:24 + header_len])
-        if len(raw) != 24 + header_len + rows * 24:
-            raise RuntimeError(f"flat bundle length mismatch: {path}")
-        base = 24 + header_len
-        offsets = header["offsets"]
-        dates = np.frombuffer(raw, dtype="<u2", count=rows, offset=base + offsets["date"]).astype(np.int32)
-        columns = {
-            name: np.frombuffer(raw, dtype="<f4", count=rows, offset=base + offsets[name])
-            for name in ("open", "high", "low", "close", "vol")
-        }
-        return header, dates, columns
-
-    def _read_requested_histories(symbols, files=None, start=None, end=None):
-        wanted = list(dict.fromkeys(symbols))
-        if not wanted:
-            return {}
-        file_list = files if files is not None else m.bar_files()
-        low = int(m.to_code(start)) if start is not None else 0
-        high = int(m.to_code(end)) if end is not None else int(np.iinfo(np.int32).max)
-        pieces = {}
-        for path in file_list:
-            header, dates, columns = _read_bundle(path)
-            positions = {symbol: index for index, symbol in enumerate(header["symbols"])}
-            for symbol in wanted:
-                index = positions.get(symbol)
-                if index is None:
-                    continue
-                first = int(header["starts"][index])
-                count = int(header["counts"][index])
-                if count <= 0:
-                    continue
-                lo, hi = m._window_edges(dates[first:first + count], low, high)
-                if lo >= hi:
-                    continue
-                at = slice(first + lo, first + hi)
-                pieces.setdefault(symbol, []).append((
-                    dates[at], columns["open"][at], columns["high"][at],
-                    columns["low"][at], columns["close"][at], columns["vol"][at],
-                ))
-        return m._finalize_histories(pieces)
-
-    def _read_trading_calendar(files=None):
-        file_list = files if files is not None else m.bar_files()
-        dates = [_read_bundle(path)[1] for path in file_list]
-        codes = np.unique(np.concatenate(dates)) if dates else np.empty(0, dtype=np.int32)
-        m.CALENDAR.register(m.labels_from_codes(codes))
-        return codes
-
-    def _read_tickers_with_bars():
-        names = set()
-        for path in m.bar_files():
-            names.update(_read_bundle(path)[0]["symbols"])
-        return sorted(names)
-
-    def _newest_code_in(path):
-        header, _, _ = _read_bundle(path)
-        return int(m.to_code(header["last_session"]))
-
-    m._read_requested_histories = _read_requested_histories
-    m._read_trading_calendar = _read_trading_calendar
-    m._read_tickers_with_bars = _read_tickers_with_bars
-    m._newest_code_in = _newest_code_in
-    m._sltp_flat_reader = True
 
 
 # The user-facing date window of the last run. Changing it is a memory
@@ -292,7 +200,6 @@ def prime_remote_cache():
     # the small metadata files to the names sltp actually opens. Bars and
     # actions already sit where sltp looks (MARKET_DAILY/). Runs at every
     # boot, so a half-written file heals itself on the next visit.
-    _install_flat_market_reader()
     import shutil
     from pathlib import Path
     from sltp.data import market_data_service as _mds
