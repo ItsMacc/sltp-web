@@ -661,12 +661,20 @@ export default function SettingsPage({ userId, userEmail, initialName, onProfile
                       </span>
                     </div>
                   ) : (
-                    <span className="st-settings-hint">
-                      Full {''}
-                      <strong>28-year</strong> history, about 750 MB. This device reads it
-                      efficiently, so nothing has to be traded away. A phone keeps 5 or 10 years
-                      and picks that on the phone.
-                    </span>
+                    <div className="st-settings-plan">
+                      <div className="st-settings-plan-locked" aria-disabled="true">
+                        <span className="st-settings-plan-radio" aria-hidden="true" />
+                        <span className="st-settings-plan-title">
+                          Full data plan
+                          <span className="st-settings-plan-badge">Desktop</span>
+                        </span>
+                      </div>
+                      <span className="st-settings-hint">
+                        Desktops are built to store the full 28-year plan and to run it
+                        efficiently, so there is no reason to drop to a cheaper one. The phone
+                        plan is chosen on the phone.
+                      </span>
+                    </div>
                   )}
                 </div>
 

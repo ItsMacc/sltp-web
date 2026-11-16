@@ -169,6 +169,46 @@
   margin-top: 0.55rem;
 }
 
+/* The desktop plan is fixed, so this reads as an option without offering one: a
+   real radio ring, left empty, and no pointer that suggests it can be picked. */
+.st-settings-plan-locked {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.1rem 0 0.2rem;
+  cursor: default;
+}
+
+.st-settings-plan-radio {
+  flex: none;
+  width: 1rem;
+  height: 1rem;
+  border-radius: 50%;
+  border: 1.5px solid var(--border-strong);
+  background: transparent;
+}
+
+.st-settings-plan-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.st-settings-plan-badge {
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-surface);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
 /* Variant used under a checkbox, indented to clear the box itself */
 .st-settings-hint.is-indented {
   margin-left: calc(var(--space-lg) + var(--space-2xs)); /* ≈28px */
@@ -493,8 +533,8 @@
 .st-settings-key-row {
   display: flex;
   align-items: center;
-  gap: var(--space-sm);
-  padding: var(--space-sm) var(--space-md);
+  gap: var(--space-md);
+  padding: 0.7rem var(--space-md);
   background: var(--bg-surface);
 }
 
@@ -506,8 +546,8 @@
   display: grid;
   place-items: center;
   flex: none;
-  width: 26px;
-  height: 26px;
+  width: 30px;
+  height: 30px;
   border-radius: 7px;
   background: var(--accent-faint);
   color: var(--text-muted);
@@ -546,6 +586,8 @@
 
 .st-settings-key-revoke {
   flex: none;
+  gap: 6px;
+  margin-left: var(--space-sm);
   white-space: nowrap;
   color: var(--text-muted);
 }
