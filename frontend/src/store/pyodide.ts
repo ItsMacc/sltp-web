@@ -21,6 +21,8 @@
 
 import { useSyncExternalStore } from 'react';
 
+import { call, destroyKernel, onKernelCrash, onKernelMessage } from './kernel';
+
 import benchmarkSource from './strategies/benchmark.py?raw';
 import adaptiveMomentumSource from './strategies/adaptive_momentum.py?raw';
 import gtaSource from './strategies/global_trend_allocation.py?raw';
@@ -181,105 +183,36 @@ function toTradeRecord(trade: Record<string, any>, index: number): Record<string
   }
 }
 
-interface PendingRun {
-  kind: 'init' | 'run' | 'lab-load' | 'python';
-  resolve: (reply: { text: string; wheelsCached: boolean }) => void;
-  reject: (err: Error) => void;
-  timer: ReturnType<typeof setTimeout>;
-}
-
-/** A full-window backtest can chew minutes on a phone-class CPU; the worker
-    answers when it answers. Fifteen minutes, then the run is declared dead —
-    the worker keeps going, but the page has moved on. */
+/** A full-window backtest can chew minutes on a phone-class CPU; the kernel
+    answers when it answers. Fifteen minutes, then the call is declared dead. */
 const RUN_TIMEOUT_MS = 15 * 60 * 1000;
 
-let worker: Worker | null = null;
-let seq = 0;
-const pending = new Map<number, PendingRun>();
+/** The kernel is shared with the Lab (store/kernel.ts); this module keeps
+    only the engine's own state. */
+let warmPromise: Promise<EngineStatus> | null = null;
 
-function ensureWorker(): Worker {
-  if (!worker) {
-    worker = new Worker(new URL('./engine.worker.ts', import.meta.url), { type: 'module' });
-    worker.onmessage = (event: MessageEvent<{
-      id: number;
-      kind: string;
-      ok: boolean;
-      data?: unknown;
-      error?: string;
-      wheelsCached?: boolean;
-      stage?: string;
-      detail?: string;
-    } | string>) => {
-      let message: {
-        id: number;
-        kind: string;
-        ok: boolean;
-        data?: unknown;
-        error?: string;
-        wheelsCached?: boolean;
-        stage?: string;
-        detail?: string;
-      };
-      try {
-        message = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
-      } catch {
-        return;
-      }
-      if (!message) return;
-      // Stage messages have no id and are not replies to anything: they only
-      // move the loading line along while the first engine boot runs.
-      if (message.kind === 'progress') {
-        setStatus({ phase: 'loading', detail: WARM_STAGE[message.stage ?? ''] ?? 'Loading engine…' });
-        return;
-      }
-      const entry = pending.get(message.id);
-      if (!entry) return;
-      pending.delete(message.id);
-      clearTimeout(entry.timer);
-      if (message.kind !== entry.kind) {
-        entry.reject(new Error(`engine crossed a reply (asked ${entry.kind}, got ${message.kind})`));
-        return;
-      }
-      if (!message.ok) {
-        entry.reject(new Error(message.error || 'engine call failed'));
-        return;
-      }
-      entry.resolve({
-        text: String(message.data ?? 'null'),
-        wheelsCached: message.wheelsCached === true,
-      });
-    };
-    worker.onerror = (event) => {
-      const message = event.message || 'engine worker crashed';
-      setStatus({ phase: 'error', detail: message });
-      for (const [, entry] of pending) {
-        clearTimeout(entry.timer);
-        entry.reject(new Error(message));
-      }
-      pending.clear();
-      worker = null;
-    };
-  }
-  return worker;
-}
+// A stage line moves the loading text along while the first boot runs.
+onKernelMessage((message) => {
+  if (message.kind !== "progress") return;
+  setStatus({ phase: "loading", detail: WARM_STAGE[String(message.stage ?? "")] ?? "Loading engine…" });
+});
 
-function callWorker(
-  kind: 'init' | 'run' | 'lab-load' | 'python',
+// The kernel died or was thrown away by the Lab: nothing is warm any more.
+onKernelCrash((reason) => {
+  warmPromise = null;
+  setStatus({ phase: "error", detail: reason });
+});
+
+/** Runs one kernel call and hands back its JSON text. */
+async function callWorker(
+  kind: "init" | "run" | "lab-load" | "python",
   payload: Record<string, unknown>,
 ): Promise<{ text: string; wheelsCached: boolean }> {
-  const instance = ensureWorker();
-  const id = (seq += 1);
-  return new Promise<{ text: string; wheelsCached: boolean }>((resolve, reject) => {
-    const timer = setTimeout(() => {
-      pending.delete(id);
-      reject(new Error('engine call timed out'));
-    }, RUN_TIMEOUT_MS);
-    pending.set(id, { kind, resolve, reject, timer });
-    instance.postMessage({ id, kind, ...payload });
-  });
+  const reply = await call(kind, payload, RUN_TIMEOUT_MS);
+  return { text: String(reply.data ?? "null"), wheelsCached: reply.wheelsCached === true };
 }
 
-let warmPromise: Promise<EngineStatus> | null = null;
+
 
 /**
  * Boots the engine worker and registers the five strategies. Phones run it
@@ -366,14 +299,8 @@ export async function runStrategy(
 /** For tests and sign-out cleanup: forget the warm so the next call reruns. */
 export function resetEngineForTests(): void {
   warmPromise = null;
-  if (worker) {
-    try {
-      worker.terminate();
-    } catch {
-      /* already gone */
-    }
-    worker = null;
-  }
-  pending.clear();
+  // The worker belongs to the kernel now, so forgetting the engine means
+  // throwing the shared interpreter away; the Lab hears and reboots its half.
+  destroyKernel('the engine was reset');
   setStatus({ ...INITIAL });
 }

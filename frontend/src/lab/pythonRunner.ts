@@ -1,14 +1,15 @@
-// pythonRunner.ts — the page-facing side of the Lab's Python runtime.
+// pythonRunner.ts — the page-facing side of the Lab's Python.
 //
-// One worker, started when the Lab opens and then kept alive across visits, so
-// coming back to the page costs nothing. The store exposes a status the page can
-// subscribe to (idle, loading, ready, error) and a run call that streams output
-// back as it arrives.
+// The interpreter is the shared kernel (store/kernel.ts): Research and the Lab
+// run in one Pyodide, and the Lab's program is a module namespace inside it.
+// This module owns what is genuinely the Lab's: the status the page shows, one
+// run at a time, a hard time limit per run, and the analyser's request map.
 //
-// A snippet that never finishes would hold the worker forever, so every run has
-// a hard limit: the worker is terminated, the reader is told, and a fresh one
-// starts in the background. That costs a restart instead of a hung tab.
+// A snippet that never finishes would hold the interpreter forever, so every
+// run has a limit: the kernel is thrown away — which Research also hears about
+// — the reader is told, and the next call boots a fresh one.
 
+import { call, onKernelCrash, onKernelMessage, supervise } from '../store/kernel';
 import type { LabLogEntry } from './backtestTypes';
 import type { EngineRunSettings } from './runSettings';
 import type { RunResult } from './pythonTypes';
@@ -30,29 +31,16 @@ export interface PythonState {
   warning: string | null;
 }
 
-/** How long one file may run before the worker is replaced. A backtest can
+/** How long one file may run before the kernel is replaced. A backtest can
     warm its cache on the first run, so this is minutes rather than seconds. */
 const RUN_TIMEOUT_MS = 300_000;
+/** A cold kernel downloads Pyodide, the packages and the wheels. */
+const WARM_TIMEOUT_MS = 600_000;
 
-type OutMessage =
-  | { type: 'ready'; version: string; engine: boolean; market: boolean; warning: string | null }
-  | { type: 'status'; text: string }
-  | { type: 'run-status'; id: number; text: string }
-  | { type: 'stdout'; id: number; text: string }
-  | { type: 'stderr'; id: number; text: string }
-  | {
-      type: 'done';
-      id: number;
-      ok: boolean;
-      message?: string;
-      notice?: string;
-      result?: unknown;
-      logs?: LabLogEntry[];
-      durationMs: number;
-    }
-  | { type: 'boot-error'; message: string }
-  | { type: 'reset-ok' }
-  | { type: 'analyze-result'; id: number; ok: boolean; error?: string; data?: unknown };
+let state: PythonState = { status: 'idle', version: null, error: null, detail: null, engine: null, market: null, warning: null };
+const listeners = new Set<() => void>();
+
+let warming = false;
 
 interface ActiveRun {
   id: number;
@@ -63,12 +51,6 @@ interface ActiveRun {
   timer: number;
 }
 
-let state: PythonState = { status: 'idle', version: null, error: null, detail: null, engine: null, market: null, warning: null };
-const listeners = new Set<() => void>();
-
-let worker: Worker | null = null;
-let bootId = 0;
-let nextId = 1;
 let activeRun: ActiveRun | null = null;
 
 /** Analysis rounds in flight; each one resolves by its own id. */
@@ -89,29 +71,6 @@ export interface AnalyzeReply {
   data?: unknown;
 }
 
-/**
- * Asks the interpreter that is already running to analyse some code. Nothing
- * is installed and nothing is started here: jedi is a Python package, so the
- * answer comes back from the same process a run would use.
- */
-export function analyze(request: AnalyzeRequest): Promise<AnalyzeReply> {
-  if (!worker) return Promise.resolve({ ok: false, error: 'Python is not ready yet' });
-  if (state.status !== 'ready') return Promise.resolve({ ok: false, error: 'Python is still starting' });
-  const id = nextId++;
-  return new Promise<AnalyzeReply>((resolve) => {
-    const finish = (reply: AnalyzeReply) => {
-      window.clearTimeout(timer);
-      resolve(reply);
-    };
-    const timer = window.setTimeout(() => {
-      pendingAnalysis.delete(id);
-      resolve({ ok: false, error: 'the analysis request timed out' });
-    }, 15_000);
-    pendingAnalysis.set(id, finish);
-    worker?.postMessage({ id, kind: 'analyze', ...request });
-  });
-}
-
 function publish(next: Partial<PythonState>): void {
   state = { ...state, ...next };
   for (const listener of listeners) listener();
@@ -128,12 +87,6 @@ export function subscribePython(listener: () => void): () => void {
   };
 }
 
-/** Ends the interpreter and forgets it. Only a failed boot uses this. */
-function disposeWorker(): void {
-  worker?.terminate();
-  worker = null;
-}
-
 function settle(result: RunResult): void {
   if (!activeRun) return;
   window.clearTimeout(activeRun.timer);
@@ -142,104 +95,135 @@ function settle(result: RunResult): void {
   resolve(result);
 }
 
-function onMessage(event: MessageEvent<OutMessage>): void {
-  const message = event.data;
+function onMessage(message: Record<string, unknown>): void {
+  const type = typeof message.type === 'string' ? message.type : null;
+  if (!type) return;
 
-  if (message.type === 'analyze-result') {
-    pendingAnalysis.get(message.id)?.({ ok: message.ok, error: message.error, data: message.data });
-    pendingAnalysis.delete(message.id);
+  if (type === 'analyze-result') {
+    const id = Number(message.id);
+    const finish = pendingAnalysis.get(id);
+    if (finish) {
+      pendingAnalysis.delete(id);
+      finish({
+        ok: message.ok === true,
+        error: typeof message.error === 'string' ? message.error : undefined,
+        data: message.data,
+      });
+    }
     return;
   }
 
-  if (message.type === 'ready') {
+  if (type === 'ready') {
     publish({
       status: 'ready',
-      version: message.version || null,
+      version: typeof message.version === 'string' ? message.version : null,
       error: null,
       detail: null,
-      engine: message.engine,
-      market: message.market,
-      warning: message.warning,
+      engine: message.engine === true,
+      market: message.market === true,
+      warning: typeof message.warning === 'string' ? message.warning : null,
     });
     return;
   }
 
-  if (message.type === 'status') {
-    publish({ detail: message.text });
+  if (type === 'status') {
+    publish({ detail: typeof message.text === 'string' ? message.text : null });
     return;
   }
 
-  if (message.type === 'boot-error') {
-    disposeWorker();
-    publish({ status: 'error', error: message.message || 'Python could not start', detail: null });
+  if (type === 'run-status') {
+    if (!activeRun || Number(message.id) !== activeRun.id) return;
+    activeRun.onProgress?.(String(message.text ?? ''));
     return;
   }
 
-  if (message.type === 'run-status') {
-    if (!activeRun || message.id !== activeRun.id) return;
-    activeRun.onProgress?.(message.text);
+  if (type === 'stdout' || type === 'stderr') {
+    if (!activeRun || Number(message.id) !== activeRun.id) return;
+    const deliver = type === 'stdout' ? activeRun.onOutput : activeRun.onOutputError;
+    deliver?.(String(message.text ?? ''));
     return;
   }
 
-  if (message.type === 'stdout' || message.type === 'stderr') {
-    if (!activeRun || message.id !== activeRun.id) return;
-    const deliver = message.type === 'stdout' ? activeRun.onOutput : activeRun.onOutputError;
-    deliver?.(message.text);
-    return;
-  }
-
-  if (message.type === 'done') {
-    if (!activeRun || message.id !== activeRun.id) return;
+  if (type === 'done') {
+    if (!activeRun || Number(message.id) !== activeRun.id) return;
+    const ok = message.ok === true;
     settle({
-      ok: message.ok,
-      error: message.ok ? undefined : message.message ?? 'The snippet failed',
-      durationMs: message.durationMs,
+      ok,
+      error: ok ? undefined : typeof message.message === 'string' ? message.message : 'The snippet failed',
+      durationMs: Number(message.durationMs ?? 0),
       result: message.result,
-      logs: message.logs,
-      notice: message.notice,
+      logs: message.logs as LabLogEntry[] | undefined,
+      notice: typeof message.notice === 'string' ? message.notice : undefined,
     });
   }
 }
 
-function startWorker(): void {
-  publish({ status: 'loading', error: null, detail: 'Loading Python…', engine: null, market: null, warning: null });
-  const created = new Worker(new URL('./python.worker.ts', import.meta.url), { type: 'module' });
-  worker = created;
-  created.onmessage = onMessage;
-  // A dead worker used to leave a run pending until the five minute timeout,
-  // with the page insisting it was still working and no clue why. Ending the
-  // run here turns that into a sentence the reader can act on.
-  const fail = (message: string) => {
-    if (worker !== created) return;
-    disposeWorker();
-    settle({ ok: false, error: message, durationMs: 0 });
-    publish({ status: 'error', error: message });
-  };
-  created.onerror = (event: ErrorEvent) => {
-    fail(event.message || 'Python stopped unexpectedly. Start the run again.');
-  };
-  created.onmessageerror = () => {
-    fail('Python stopped unexpectedly. Start the run again.');
-  };
-  bootId = nextId++;
-  created.postMessage({ id: bootId, kind: 'init' });
-}
+onKernelMessage(onMessage);
 
-/** Boots the interpreter once. Repeated calls are free. */
+// A kernel that died — or was thrown away by the other page — leaves nothing
+// warm. The Lab says so and boots a fresh one on the next request.
+onKernelCrash((reason) => {
+  if (activeRun) {
+    settle({ ok: false, error: reason, durationMs: 0 });
+  }
+  publish({ status: 'idle', version: null, detail: null, engine: null, market: null, warning: null });
+});
+
+/** Boots the Lab's half of the kernel once. Repeated calls are free. */
 export function loadPython(): void {
-  if (worker || state.status === 'loading' || state.status === 'ready') return;
-  startWorker();
+  if (state.status === 'loading' || state.status === 'ready' || warming) return;
+  warming = true;
+  publish({ status: 'loading', error: null, detail: 'Loading Python…', engine: null, market: null, warning: null });
+  void call('lab-warm', {}, WARM_TIMEOUT_MS)
+    .catch((error: unknown) => {
+      publish({
+        status: 'error',
+        error: error instanceof Error ? error.message : 'Python could not start',
+        detail: null,
+      });
+    })
+    .finally(() => {
+      warming = false;
+    });
 }
 
 /** Retries after a failed boot. */
 export function restartPython(): void {
-  disposeWorker();
+  supervise('the Lab asked for a fresh interpreter');
   publish({ status: 'idle', error: null, version: null, detail: null, engine: null, market: null, warning: null });
-  startWorker();
+  loadPython();
 }
 
 /**
- * Runs one snippet, streaming stdout and stderr as they arrive. The promise
+ * Asks the interpreter that is already running to analyse some code. Nothing
+ * is installed and nothing is started here: jedi lives in the Lab's namespace.
+ */
+export function analyze(request: AnalyzeRequest): Promise<AnalyzeReply> {
+  if (state.status !== 'ready') {
+    return Promise.resolve({
+      ok: false,
+      error: state.status === 'loading' ? 'Python is still starting' : 'Python is not ready yet',
+    });
+  }
+  return new Promise<AnalyzeReply>((resolve) => {
+    let timer = 0;
+    const finish = (reply: AnalyzeReply) => {
+      window.clearTimeout(timer);
+      resolve(reply);
+    };
+    timer = window.setTimeout(() => {
+      resolve({ ok: false, error: 'the analysis request timed out' });
+    }, 15_000);
+    void call('analyze', { ...request }, 15_000, (id) => {
+      pendingAnalysis.set(id, finish);
+    }).catch((error: unknown) => {
+      finish({ ok: false, error: error instanceof Error ? error.message : String(error) });
+    });
+  });
+}
+
+/**
+ * Runs one project, streaming stdout and stderr as they arrive. The promise
  * resolves for a Python error as well, since the error is output, not a crash.
  */
 export function runPython(
@@ -253,7 +237,7 @@ export function runPython(
   } = {},
   settings?: EngineRunSettings,
 ): Promise<RunResult> {
-  if (!worker || state.status !== 'ready') {
+  if (state.status !== 'ready') {
     return Promise.resolve({
       ok: false,
       error: state.status === 'loading' ? 'Python is still starting' : 'Python is not running',
@@ -261,12 +245,11 @@ export function runPython(
     });
   }
 
-  // One run at a time: the worker's stdout has no way to tell two apart.
+  // One run at a time: stdout has no way to tell two apart.
   if (activeRun) {
     return Promise.resolve({ ok: false, error: 'A file is already running', durationMs: 0 });
   }
 
-  const id = nextId++;
   return new Promise<RunResult>((resolve) => {
     const timer = window.setTimeout(() => {
       settle({
@@ -274,27 +257,34 @@ export function runPython(
         error: `Stopped after ${Math.round(RUN_TIMEOUT_MS / 1000)} seconds. Python restarted and the files from this session were cleared.`,
         durationMs: RUN_TIMEOUT_MS,
       });
-      disposeWorker();
-      publish({ status: 'idle', version: null, error: null });
-      startWorker();
+      supervise('a Lab run was stopped after its time limit');
     }, RUN_TIMEOUT_MS);
 
     activeRun = {
-      id,
+      id: 0,
       onOutput: handlers.onOutput,
       onOutputError: handlers.onOutputError,
       onProgress: handlers.onProgress,
       resolve,
       timer,
     };
-    worker?.postMessage({ id, kind: 'run', filename, code, files, settings });
+    void call('run-project', { filename, code, files, settings }, RUN_TIMEOUT_MS + 5_000, (id) => {
+      if (activeRun) activeRun.id = id;
+    }).catch((error: unknown) => {
+      settle({
+        ok: false,
+        error: error instanceof Error ? error.message : 'the run failed',
+        durationMs: 0,
+      });
+    });
   });
 }
 
 /**
  * Ends a run. Python cannot be interrupted inside a call, so stopping means
- * throwing the worker away. Nothing is booted here: the cancel is immediate,
- * and the next run starts the interpreter again from the files on screen.
+ * throwing the kernel away; Research is told and boots a fresh one on its next
+ * run. The Lab's next request starts a fresh interpreter from the files on
+ * screen.
  */
 export function stopRun(): void {
   if (!activeRun) return;
@@ -303,11 +293,10 @@ export function stopRun(): void {
     error: 'Cancelled. The next run starts a fresh interpreter.',
     durationMs: 0,
   });
-  disposeWorker();
-  publish({ status: 'idle', version: null, error: null, detail: null });
+  supervise('the Lab cancelled its run');
 }
 
 /** Clears the files and modules of the last run, keeping Python warm. */
 export function resetProjectFiles(): void {
-  worker?.postMessage({ id: nextId++, kind: 'reset' });
+  void call('reset-project', {}, 20_000).catch(() => undefined);
 }

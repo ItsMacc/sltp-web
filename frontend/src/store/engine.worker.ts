@@ -21,6 +21,7 @@
 // are already on disk in OPFS.
 
 
+import { ANALYZER, LAB_BOOTSTRAP } from '../lab/pythonSources';
 import { installWheel } from './wheels';
 
 /** Pinned runtime: the full build serves loadPyodide plus every wheel. */
@@ -32,11 +33,22 @@ const PYODIDE_INDEX_URL = 'https://cdn.jsdelivr.net/pyodide/v314.0.7/full/';
 const SLTP_VERSION = '0.1.39';
 
 /** The slice of the Pyodide JS API this worker touches. */
+/** The Lab's analyser pins: the same wheels the Lab used to install itself. */
+const JEDI_VERSION = '0.20.1';
+const PARSO_VERSION = '0.8.7';
+const PYFLAKES_VERSION = '4.1.0';
+
 interface PyodideApi {
   loadPackage: (names: string | string[]) => Promise<void>;
-  runPythonAsync: (code: string) => Promise<unknown>;
+  runPython: (code: string, options?: { globals?: unknown }) => unknown;
+  runPythonAsync: (code: string, options?: { globals?: unknown }) => Promise<unknown>;
+  setStdout: (options: { batched?: (text: string) => void }) => void;
+  setStderr: (options: { batched?: (text: string) => void }) => void;
   pyimport: (name: string) => { install: (requirement: string) => Promise<unknown> };
-  globals: { get: (name: string) => (...args: unknown[]) => unknown };
+  globals: {
+    get: (name: string) => ((...args: unknown[]) => unknown) & Record<string, unknown>;
+    set: (name: string, value: unknown) => void;
+  };
   FS: { mkdirTree: (path: string) => void; writeFile: (path: string, data: Uint8Array) => void };
   mountNativeFS: (mountpoint: string, handle: FileSystemDirectoryHandle) => Promise<unknown>;
 }
@@ -59,7 +71,29 @@ type Incoming =
   | { id: number; kind: 'init'; strategies: StrategyInit[] }
   | { id: number; kind: 'run'; key: string; start: string; end: string | null }
   | { id: number; kind: 'lab-load'; start: string; end: string | null }
-  | { id: number; kind: 'python'; code: string };
+  | { id: number; kind: 'python'; code: string }
+  // The Lab shares this interpreter now. Its program is executed into its own
+  // namespace, so the two pages share a Pyodide without sharing names.
+  | { id: number; kind: 'lab-warm' }
+  | {
+      id: number;
+      kind: 'run-project';
+      filename: string;
+      code: string;
+      files: { name: string; content: string }[];
+      settings?: Record<string, unknown>;
+    }
+  | {
+      id: number;
+      kind: 'analyze';
+      method: string;
+      code: string;
+      path: string;
+      line: number;
+      column: number;
+      files: { name: string; content: string }[];
+    }
+  | { id: number; kind: 'reset-project' };
 
 // Everything the worker needs from Python, defined once. Drivers return
 // JSON strings so the only thing crossing the worker boundary is text.
@@ -374,6 +408,21 @@ let pyodide: PyodideApi | null = null;
 let booted = false;
 let cacheMounted = false;
 
+/** The Lab's namespace, created on its first request and reused after that. */
+let labGlobals: Record<string, unknown> | null = null;
+let labReady = false;
+/** Why the Lab half is degraded, when it is. */
+let labWarning: string | null = null;
+/** The project run whose stdout is arriving right now. */
+let currentRun = 0;
+let currentLogs: { stream: 'stdout' | 'stderr'; text: string }[] = [];
+
+/** Status lines for the Lab's progress panel. */
+function labStatus(text: string, id = 0): void {
+  if (id) self.postMessage({ type: 'run-status', id, text });
+  else self.postMessage({ type: 'status', text });
+}
+
 function reply(
   id: number,
   kind: string,
@@ -385,8 +434,23 @@ function reply(
   self.postMessage({ id, kind, ok, data, error, ...extra });
 }
 
+/** Registers the prebuilt strategies in the running interpreter. Idempotent:
+    a key is overwritten, so a second init from another page is harmless. */
+function registerStrategies(strategies: StrategyInit[]): void {
+  if (!pyodide || strategies.length === 0) return;
+  const register = pyodide.globals.get('register_strategy');
+  for (const entry of strategies) {
+    register(entry.key, entry.className, entry.source);
+  }
+}
+
 async function boot(strategies: StrategyInit[]): Promise<void> {
-  if (booted) return;
+  // The Lab may have booted the kernel first (with no strategies). Registering
+  // here is what makes Research work on a kernel someone else started.
+  if (booted) {
+    registerStrategies(strategies);
+    return;
+  }
   // One stage message per step, so the page can say what the first run is
   // waiting on instead of a blank "Loading engine…".
   let last = performance.now();
@@ -397,6 +461,22 @@ async function boot(strategies: StrategyInit[]): Promise<void> {
   };
   const instance = await loadPyodideAtPin();
   pyodide = instance;
+  // The Lab's program prints through these, one line at a time; a Research
+  // run prints nothing, so currentRun stays 0 and the lines are dropped.
+  instance.setStdout({
+    batched: (text: string) => {
+      if (!currentRun) return;
+      currentLogs.push({ stream: 'stdout', text });
+      self.postMessage({ type: 'stdout', id: currentRun, text });
+    },
+  });
+  instance.setStderr({
+    batched: (text: string) => {
+      if (!currentRun) return;
+      currentLogs.push({ stream: 'stderr', text });
+      self.postMessage({ type: 'stderr', id: currentRun, text });
+    },
+  });
   step('python');
   // Everything sltp imports besides itself (numpy, pyarrow, python-dateutil)
   // comes from the Pyodide distribution: a WASM runtime cannot load the
@@ -432,11 +512,123 @@ async function boot(strategies: StrategyInit[]): Promise<void> {
   const prime = instance.globals.get('prime_remote_cache');
   await prime();
   step('data');
-  const register = instance.globals.get('register_strategy');
-  for (const entry of strategies) {
-    register(entry.key, entry.className, entry.source);
-  }
   booted = true;
+  registerStrategies(strategies);
+}
+
+/**
+ * Boots the Lab's half of this interpreter: its own namespace, its project
+ * runner, and — from the shared OPFS wheel cache — its analyser. Called on
+ * the first Lab request only, because a Research run should not pay for jedi.
+ */
+async function warmLab(): Promise<void> {
+  // The Lab can be the first page to need Python: boot the kernel for it and
+  // let Research register its strategies later into the same interpreter.
+  if (!booted) await boot([]);
+  if (!pyodide) throw new Error('the Python kernel is not ready yet');
+  if (labReady) return;
+  const instance = pyodide;
+  if (!labGlobals) labGlobals = instance.runPython('{}') as Record<string, unknown>;
+  const namespace = labGlobals;
+  labStatus('Preparing the workspace…');
+  try {
+    instance.runPython(LAB_BOOTSTRAP, { globals: namespace });
+    labStatus('Preparing the analyser…');
+    const micropip = instance.pyimport('micropip');
+    await installWheel(instance, micropip, 'parso', PARSO_VERSION);
+    await installWheel(instance, micropip, 'jedi', JEDI_VERSION);
+    await installWheel(instance, micropip, 'pyflakes', PYFLAKES_VERSION);
+    instance.runPython(ANALYZER, { globals: namespace });
+    labWarning = null;
+  } catch (error) {
+    // The runner still works without jedi; the reason is kept for the status.
+    labWarning = error instanceof Error ? error.message : String(error);
+  }
+  labReady = true;
+}
+
+/** One project run: streams its output, then posts the run's own reply. */
+async function runProject(
+  id: number,
+  filename: string,
+  code: string,
+  files: { name: string; content: string }[],
+  settings: Record<string, unknown> | undefined,
+): Promise<void> {
+  if (!pyodide || !labGlobals) throw new Error('the Lab has not started yet');
+  const instance = pyodide;
+  currentRun = id;
+  currentLogs = [];
+  labStatus('Preparing the workspace…', id);
+  instance.globals.set('lab_status', (text: unknown) => labStatus(String(text), id));
+  const started = performance.now();
+  const source: Record<string, string> = {};
+  for (const file of files) source[file.name] = file.name === filename ? code : file.content;
+  try {
+    const outcome = String(
+      await instance.runPythonAsync(
+        `run_project(${JSON.stringify(filename)}, ${JSON.stringify(source)}, ${JSON.stringify(JSON.stringify(settings ?? {}))})`,
+        { globals: labGlobals },
+      ),
+    );
+    let parsed: { ok?: boolean; result?: unknown; error?: string; notice?: string };
+    try {
+      parsed = JSON.parse(outcome) as typeof parsed;
+    } catch {
+      parsed = { ok: false, error: outcome };
+    }
+    self.postMessage({
+      type: 'done',
+      id,
+      ok: parsed.ok === true,
+      message: parsed.error,
+      notice: parsed.notice,
+      result: parsed.result ?? null,
+      logs: currentLogs,
+      durationMs: performance.now() - started,
+    });
+  } catch (error) {
+    self.postMessage({
+      type: 'done',
+      id,
+      ok: false,
+      message: error instanceof Error ? error.message : String(error),
+      logs: currentLogs,
+      durationMs: performance.now() - started,
+    });
+  } finally {
+    currentRun = 0;
+  }
+}
+
+/** One editor question, answered by jedi inside the Lab's namespace. */
+async function analyzeRequest(message: Extract<Incoming, { kind: 'analyze' }>): Promise<void> {
+  if (!pyodide || !labGlobals) throw new Error('the Lab has not started yet');
+  const files: Record<string, string> = {};
+  for (const file of message.files) files[file.name] = file.content;
+  try {
+    const raw = String(
+      await pyodide.runPythonAsync(
+        `analyze(${JSON.stringify(message.method)}, ${JSON.stringify(message.code)}, ${JSON.stringify(message.path)}, ${JSON.stringify(message.line)}, ${JSON.stringify(message.column)}, ${JSON.stringify(JSON.stringify(files))})`,
+        { globals: labGlobals },
+      ),
+    );
+    const parsed = JSON.parse(raw) as { ok?: boolean; error?: string; data?: unknown };
+    self.postMessage({
+      type: 'analyze-result',
+      id: message.id,
+      ok: parsed.ok === true,
+      error: parsed.error,
+      data: parsed.data ?? null,
+    });
+  } catch (error) {
+    self.postMessage({
+      type: 'analyze-result',
+      id: message.id,
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 }
 
 self.onmessage = async (event: MessageEvent<Incoming>) => {
@@ -449,7 +641,49 @@ self.onmessage = async (event: MessageEvent<Incoming>) => {
       });
       return;
     }
-    if (!pyodide || !booted) throw new Error('engine is not ready yet');
+    const isLabCall =
+      message.kind === 'lab-warm' ||
+      message.kind === 'run-project' ||
+      message.kind === 'analyze' ||
+      message.kind === 'reset-project';
+    // A Lab call may be what boots the kernel; a Research call never is.
+    if (!isLabCall && (!pyodide || !booted)) throw new Error('engine is not ready yet');
+    if (message.kind === 'lab-warm') {
+      await warmLab();
+      let version = 'unknown';
+      try {
+        version = String(pyodide.runPython('python_version', { globals: labGlobals ?? undefined }));
+      } catch {
+        /* the version line is a nicety, not a contract */
+      }
+      self.postMessage({
+        type: 'ready',
+        version,
+        engine: true,
+        market: cacheMounted,
+        warning: labWarning,
+        cache: cacheMounted,
+      });
+      reply(message.id, message.kind, true, JSON.stringify({ ready: true }));
+      return;
+    }
+    if (message.kind === 'run-project') {
+      await warmLab();
+      await runProject(message.id, message.filename, message.code, message.files, message.settings);
+      reply(message.id, message.kind, true, JSON.stringify({ done: true }));
+      return;
+    }
+    if (message.kind === 'analyze') {
+      await warmLab();
+      await analyzeRequest(message);
+      reply(message.id, message.kind, true, JSON.stringify({ done: true }));
+      return;
+    }
+    if (message.kind === 'reset-project') {
+      if (labReady && labGlobals) pyodide.runPython('reset_project()', { globals: labGlobals });
+      reply(message.id, message.kind, true, JSON.stringify({ ok: true }));
+      return;
+    }
     if (message.kind === 'run') {
       const runStrategy = pyodide.globals.get('run_strategy');
       const text = String(runStrategy(message.key, message.start, message.end));

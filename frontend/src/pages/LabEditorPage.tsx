@@ -7,7 +7,7 @@
 //   workspace/  the strategy files the student writes
 //
 // The tree is built from the files themselves, so a folder is only shown when
-// a real file lives in it. Python runs in a browser worker (python.worker.ts),
+// a real file lives in it. Python runs in the shared kernel worker
 // with the project's files written to its own in-memory disk before each run.
 import {
   memo,
@@ -701,7 +701,7 @@ export default function LabEditorPage({ project, workspaceName, onBack }: LabEdi
   };
 
   // -------- Run --------
-  // Python runs in the page's own worker (lab/python.worker.ts), so a run
+  // Python runs in the shared kernel worker (store/engine.worker.ts), so a run
   // costs no request and works offline once the interpreter has loaded. The
   // open file's draft is what runs, unsaved edits included.
 
