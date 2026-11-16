@@ -19,7 +19,7 @@ import type { EngineRunSettings } from './runSettings';
 /** Pinned Pyodide build: the same distribution the engine worker uses. */
 const PYODIDE_INDEX_URL = 'https://cdn.jsdelivr.net/pyodide/v314.0.7/full/';
 /** Engine pin: matches backend/requirements.txt. */
-const SLTP_VERSION = '0.1.351';
+const SLTP_VERSION = '0.1.39';
 /** Pure-Python date library the strategy base imports. */
 const DATEUTIL_VERSION = '2.9.0';
 

@@ -280,7 +280,7 @@ export default function App() {
       } else {
         setUser(null);
         invalidatePortfolio();
-        sessionStorage.clear();
+        for (const key of Object.keys(sessionStorage)) sessionStorage.removeItem(key);
         document.documentElement.removeAttribute('data-theme');
       }
     });

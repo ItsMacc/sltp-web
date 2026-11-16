@@ -238,11 +238,21 @@ export const HELP: DocGroup = {
             'A Backtester refuses to run twice.',
           ],
         },
+        { kind: 'h2', id: 'runtime-versions', text: 'Runtime versions' },
+        {
+          kind: 'table',
+          head: ['Runtime', 'Pinned sltp version'],
+          rows: [
+            ['Browser engine (Pyodide)', '0.1.39'],
+            ['Lab (Pyodide)', '0.1.39'],
+            ['Backend', '>=0.1.39'],
+          ],
+        },
         {
           kind: 'callout',
           tone: 'note',
           title: 'Versioning',
-          text: <>These docs track the <C>sltp</C> package on PyPI. The backend and the site release separately; the headings below name behaviour, not a tagged build.</>,
+          text: <>These docs track the <C>sltp</C> package on PyPI. The browser engine is pinned to <C>sltp 0.1.39</C>; the backend requires <C>sltp&gt;=0.1.39</C>. The backend and the site release separately; the headings below name behaviour, not a tagged build.</>,
         },
       ],
     },

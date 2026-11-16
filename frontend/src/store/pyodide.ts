@@ -182,7 +182,7 @@ function toTradeRecord(trade: Record<string, any>, index: number): Record<string
 }
 
 interface PendingRun {
-  kind: 'init' | 'run';
+  kind: 'init' | 'run' | 'lab-load' | 'python';
   resolve: (reply: { text: string; wheelsCached: boolean }) => void;
   reject: (err: Error) => void;
   timer: ReturnType<typeof setTimeout>;
@@ -208,28 +208,45 @@ function ensureWorker(): Worker {
       error?: string;
       wheelsCached?: boolean;
       stage?: string;
-    }>) => {
+      detail?: string;
+    } | string>) => {
+      let message: {
+        id: number;
+        kind: string;
+        ok: boolean;
+        data?: unknown;
+        error?: string;
+        wheelsCached?: boolean;
+        stage?: string;
+        detail?: string;
+      };
+      try {
+        message = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
+      } catch {
+        return;
+      }
+      if (!message) return;
       // Stage messages have no id and are not replies to anything: they only
       // move the loading line along while the first engine boot runs.
-      if (event.data.kind === 'progress') {
-        setStatus({ phase: 'loading', detail: WARM_STAGE[event.data.stage ?? ''] ?? 'Loading engine…' });
+      if (message.kind === 'progress') {
+        setStatus({ phase: 'loading', detail: WARM_STAGE[message.stage ?? ''] ?? 'Loading engine…' });
         return;
       }
-      const entry = pending.get(event.data.id);
+      const entry = pending.get(message.id);
       if (!entry) return;
-      pending.delete(event.data.id);
+      pending.delete(message.id);
       clearTimeout(entry.timer);
-      if (event.data.kind !== entry.kind) {
-        entry.reject(new Error(`engine crossed a reply (asked ${entry.kind}, got ${event.data.kind})`));
+      if (message.kind !== entry.kind) {
+        entry.reject(new Error(`engine crossed a reply (asked ${entry.kind}, got ${message.kind})`));
         return;
       }
-      if (!event.data.ok) {
-        entry.reject(new Error(event.data.error || 'engine call failed'));
+      if (!message.ok) {
+        entry.reject(new Error(message.error || 'engine call failed'));
         return;
       }
       entry.resolve({
-        text: String(event.data.data ?? 'null'),
-        wheelsCached: event.data.wheelsCached === true,
+        text: String(message.data ?? 'null'),
+        wheelsCached: message.wheelsCached === true,
       });
     };
     worker.onerror = (event) => {
@@ -247,7 +264,7 @@ function ensureWorker(): Worker {
 }
 
 function callWorker(
-  kind: 'init' | 'run',
+  kind: 'init' | 'run' | 'lab-load' | 'python',
   payload: Record<string, unknown>,
 ): Promise<{ text: string; wheelsCached: boolean }> {
   const instance = ensureWorker();
@@ -296,6 +313,20 @@ async function runWarm(): Promise<EngineStatus> {
  * engine first when the page never did. The caller clamps a phone's start
  * date to the decade its cache covers.
  */
+export async function loadAllMarketData(start = '1998-01-01', end?: string): Promise<string> {
+  const warmed = await warmEngine();
+  if (warmed.phase !== 'ready') throw new Error(warmed.detail || 'The strategy engine did not start.');
+  const { text } = await callWorker('lab-load', { start, end: end ?? null });
+  return text;
+}
+
+export async function runPython(code: string): Promise<string> {
+  const warmed = await warmEngine();
+  if (warmed.phase !== 'ready') throw new Error(warmed.detail || 'The strategy engine did not start.');
+  const { text } = await callWorker('python', { code });
+  return text;
+}
+
 export async function runStrategy(
   id: string,
   start: string,

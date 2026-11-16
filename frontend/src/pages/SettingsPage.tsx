@@ -27,8 +27,11 @@ import {
   applyAndStoreUserSettings,
   isHeavyChartLimit,
   readChartMaxBars,
+  readStrategyChartStyle,
   DEFAULT_CHART_MAX_BARS,
+  DEFAULT_STRATEGY_CHART_STYLE,
   type ChartMaxBars,
+  type StrategyChartStyle,
   type UserSettings,
 } from '../../lib/settings';
 import './SettingsPage.css';
@@ -74,6 +77,7 @@ export default function SettingsPage({ userId, userEmail, initialName, onProfile
   const [theme, setTheme] = useState(() => sessionStorage.getItem('st_user_theme') || 'Light');
   const [defaultTimeframe, setDefaultTimeframe] = useState('1y');
   const [chartStyle, setChartStyle] = useState('candles');
+  const [strategyChartStyle, setStrategyChartStyle] = useState<StrategyChartStyle>(DEFAULT_STRATEGY_CHART_STYLE);
   const [defaultZoom, setDefaultZoom] = useState(90);
   const [chartMaxBars, setChartMaxBars] = useState<ChartMaxBars>(DEFAULT_CHART_MAX_BARS);
 
@@ -140,6 +144,7 @@ export default function SettingsPage({ userId, userEmail, initialName, onProfile
           if (currentSettings.theme) setTheme(currentSettings.theme);
           if (currentSettings.defaultTimeframe) setDefaultTimeframe(currentSettings.defaultTimeframe);
           if (currentSettings.chartStyle) setChartStyle(currentSettings.chartStyle);
+          setStrategyChartStyle(readStrategyChartStyle(currentSettings));
           if (currentSettings.defaultZoom) setDefaultZoom(currentSettings.defaultZoom);
           setChartMaxBars(readChartMaxBars(currentSettings));
 
@@ -324,6 +329,7 @@ export default function SettingsPage({ userId, userEmail, initialName, onProfile
         theme,
         defaultTimeframe,
         chartStyle,
+        strategyChartStyle,
         defaultZoom,
         chartMaxBars,
         tradeSignals,
@@ -530,7 +536,7 @@ export default function SettingsPage({ userId, userEmail, initialName, onProfile
                 </div>
 
                 <div className="st-settings-field">
-                  <label className="st-settings-label">Chart style</label>
+                  <label className="st-settings-label">Stock chart style</label>
                   <RadioGroup
                     name="chartStyle"
                     value={chartStyle}
@@ -541,6 +547,20 @@ export default function SettingsPage({ userId, userEmail, initialName, onProfile
                     ]}
                   />
                   <span className="st-settings-hint">Candlesticks show open, high, low and close per day. The line view just draws the close price, which is easier to read at a glance.</span>
+                </div>
+
+                <div className="st-settings-field">
+                  <label className="st-settings-label">Strategy chart style</label>
+                  <RadioGroup
+                    name="strategyChartStyle"
+                    value={strategyChartStyle}
+                    onChange={(val) => setStrategyChartStyle(val === 'line' ? 'line' : 'candles')}
+                    options={[
+                      { label: 'Candlesticks', value: 'candles' },
+                      { label: 'Line', value: 'line' },
+                    ]}
+                  />
+                  <span className="st-settings-hint">How a backtest equity curve is drawn. Candlesticks show the move from one session to the next; the line view is cleaner when comparing a long run.</span>
                 </div>
 
                 <div className="st-settings-field">

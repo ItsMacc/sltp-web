@@ -17,7 +17,7 @@
 //
 // Cost model, measured Nov 2026: the desktop priority pair (tail + current
 // year) is ~28MB (~a couple of seconds on a fast link) and the full set
-// ~389MB; the phone plan (tail plus the five-year window) is smaller. Reads stay inside the
+// ~748MB; the phone plan (tail plus the five-year window) is smaller. Reads stay inside the
 // bucket's free Class B allowance because every file downloads once per
 // version and is read from disk afterwards.
 //
@@ -161,13 +161,13 @@ export async function resolveFileUrl(key: string): Promise<string> {
 }
 
 /**
- * "market_data_2019.parquet" -> [2019, 2019]; the retired six-year shape
- * "market_data_1998_2003.parquet" -> [1998, 2003]; anything else null
- * (the `recent` tail, the actions sidecar). Both shapes flow through the
- * same logic, so a manifest of either vintage plans and queries correctly.
+ * "market_data_2019.bin" / "market_data_2019.parquet" -> [2019, 2019];
+ * the retired six-year parquet shape -> [1998, 2003]; anything else null
+ * (the `recent` tail, the actions sidecar). Both bar formats flow through
+ * the same logic, so a mixed manifest still plans and queries correctly.
  */
 export function chunkRange(key: string): [number, number] | null {
-  const single = /market_data_(\d{4})\.parquet$/.exec(key);
+  const single = /market_data_(\d{4})\.(?:bin|parquet)$/.exec(key);
   if (single) return [Number(single[1]), Number(single[1])];
   const range = /market_data_(\d{4})_(\d{4})\.parquet$/.exec(key);
   if (!range) return null;
@@ -182,7 +182,7 @@ function barKeys(files: ManifestFile[]): string[] {
     .filter(
       (key) =>
         key.startsWith('MARKET_DAILY/') &&
-        key.endsWith('.parquet') &&
+        (key.endsWith('.parquet') || key.endsWith('.bin')) &&
         !key.endsWith('market_actions.parquet'),
     );
 }
@@ -507,7 +507,7 @@ async function runBoot(): Promise<void> {
       .map((name) => `MARKET_DAILY/${name}`)
       .filter(
         (key) =>
-          key.endsWith('.parquet') &&
+          (key.endsWith('.parquet') || key.endsWith('.bin')) &&
           !key.endsWith('market_actions.parquet') &&
           !planSet.has(key),
       );

@@ -87,32 +87,6 @@ let catalogCache: TickerInfo[] | null = null;
 /** Parses in flight: concurrent queries for the same chunk share one parse. */
 const parseInflight = new Map<string, Promise<Bar[]>>();
 
-function perfLog(key: string, symbol: string, perf: QueryPerf | undefined): void {
-  try {
-    if (localStorage.getItem('sltp_perf') !== '1' || !perf) return;
-  } catch {
-    return;
-  }
-  // eslint-disable-next-line no-console
-  console.debug(
-    `[market] ${symbol} ${key}: ${(perf.fileBytes / 1048576).toFixed(0)}MB file, ` +
-      `footer ${perf.footerMs}ms, parse ${perf.parseMs}ms, scanned ${perf.rowsScanned.toLocaleString()} rows`,
-  );
-}
-
-function sidecarLog(key: string, symbol: string, hit: boolean, ms: number, rows: number): void {
-  try {
-    if (localStorage.getItem('sltp_perf') !== '1') return;
-  } catch {
-    return;
-  }
-  // eslint-disable-next-line no-console
-  console.debug(
-    `[market] ${symbol} ${key}: sidecar ${hit ? 'HIT' : 'MISS'} ${Math.round(ms)}ms` +
-      (hit ? `, ${rows.toLocaleString()} rows` : ''),
-  );
-}
-
 export async function queryFile(
   key: string,
   symbol: string,
@@ -130,21 +104,17 @@ export async function queryFile(
         // of truth and its rows are stored for next time.
         const version = getManifest()?.version ?? null;
         if (version) {
-          const t0 = performance.now();
           const cached = await readTickerSidecar(version, key, symbol);
           if (cached) {
             rememberSeries(cacheKey, cached);
-            sidecarLog(key, symbol, true, performance.now() - t0, cached.length);
             return cached;
           }
-          sidecarLog(key, symbol, false, performance.now() - t0, 0);
         }
         const file = await getChunkFile(key);
         const data = await runWorker({ kind: 'bars', file, symbol });
         const rows = data.rows ?? [];
         rows.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
         rememberSeries(cacheKey, rows);
-        perfLog(key, symbol, data.perf);
         if (version) await writeTickerSidecar(version, key, symbol, rows);
         return rows;
       })().finally(() => {
@@ -219,7 +189,6 @@ async function queryFileQuotes(
     inflight = (async () => {
       const file = await getChunkFile(key);
       const data = await runWorker({ kind: 'quotes', file, symbols: missing });
-      perfLog(key, `quotes(${missing.length})`, data.perf);
       const fresh = data.quotes ?? {};
       for (const symbol of missing) {
         rememberFileQuote(`${version}|${key}|${symbol}`, fresh[symbol] ?? null);

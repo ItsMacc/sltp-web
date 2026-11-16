@@ -241,6 +241,47 @@
   gap: var(--space-xs);
 }
 
+.strategy-chart-title-row {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  min-width: 0;
+}
+
+.strategy-chart-style {
+  display: inline-flex;
+  flex: 0 0 auto;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.strategy-chart-style button {
+  border: 0;
+  background: var(--bg-surface-hover);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--text-xs);
+  padding: var(--space-3xs) var(--space-sm);
+  cursor: pointer;
+}
+
+.strategy-chart-style button + button {
+  border-left: 1px solid var(--border-subtle);
+}
+
+.strategy-chart-style button.is-active {
+  background: var(--accent-muted);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.strategy-chart-style button:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+
 .strategy-title {
   margin: 0;
   font-size: 1.1875rem; /* 17px */
@@ -487,6 +528,75 @@
   gap: var(--space-md) var(--space-lg);
 }
 
+/* Small screens keep the compact two-column cards. The table takes over once
+   the card is wide enough for a proper reading column. */
+.strategy-metrics-table-wrap {
+  display: none;
+}
+
+@media (min-width: 48rem) {
+  .strategy-metrics-table-wrap {
+    display: block;
+  }
+
+  .strategy-metrics-grid {
+    display: none;
+  }
+}
+
+.strategy-metrics-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.strategy-metrics-table th,
+.strategy-metrics-table td {
+  padding: var(--space-xs) var(--space-sm);
+  border-bottom: 1px solid var(--border-subtle);
+  text-align: left;
+  vertical-align: baseline;
+}
+
+.strategy-metrics-table thead th {
+  padding-top: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.strategy-metrics-table thead th:last-child,
+.strategy-metrics-table td {
+  text-align: right;
+}
+
+.strategy-metrics-table tbody th {
+  width: 70%;
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.strategy-metrics-table td {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-base);
+  font-weight: 500;
+  color: var(--text-strong);
+}
+
+.strategy-metrics-table td.is-positive { color: var(--success); }
+.strategy-metrics-table td.is-negative { color: var(--error); }
+
+.strategy-metrics-table tbody tr:last-child th,
+.strategy-metrics-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
 .strategy-metric {
   display: flex;
   flex-direction: column;
@@ -644,6 +754,7 @@
   .strategy-library-scroll {
     max-height: none;
   }
+
 }
 
 /* ---------- Small screens ---------- */

@@ -24,7 +24,7 @@ import { getFile, hasFile, pruneWheels, putFile } from './opfs';
 /** Pinned runtime: the full build serves loadPyodide plus every wheel. */
 const PYODIDE_INDEX_URL = 'https://cdn.jsdelivr.net/pyodide/v314.0.7/full/';
 /** Engine pin: matches backend/requirements.txt. */
-const SLTP_VERSION = '0.1.351';
+const SLTP_VERSION = '0.1.39';
 /** Pure-Python date library the strategy base imports. */
 const DATEUTIL_VERSION = '2.9.0';
 
@@ -54,7 +54,9 @@ interface StrategyInit {
 
 type Incoming =
   | { id: number; kind: 'init'; strategies: StrategyInit[] }
-  | { id: number; kind: 'run'; key: string; start: string; end: string | null };
+  | { id: number; kind: 'run'; key: string; start: string; end: string | null }
+  | { id: number; kind: 'lab-load'; start: string; end: string | null }
+  | { id: number; kind: 'python'; code: string };
 
 // Everything the worker needs from Python, defined once. Drivers return
 // JSON strings so the only thing crossing the worker boundary is text.
@@ -68,6 +70,7 @@ _STRATEGIES = {}
 # day loop itself. Printed in the UI, so a slow phone names its bottleneck
 # instead of leaving the reader staring at a spinner.
 _IO_STATS = {"io_seconds": 0.0, "io_calls": 0}
+
 
 # The user-facing date window of the last run. Changing it is a memory
 # boundary: the old window's decoded universes are dead weight while the new
@@ -102,12 +105,14 @@ def _install_shared_bulk_cache():
         try:
             universe = service.get_all_tickers()
             histories = original(universe, start, end)
-        except Exception:
+        except Exception as error:
             # The canonical read is an optimisation. If the catalog is
             # unavailable, let the engine take its normal path.
             return original(symbols, start, end)
-        return {symbol: histories[symbol] for symbol in symbols if symbol in histories}
+        result = {symbol: histories[symbol] for symbol in symbols if symbol in histories}
+        return result
 
+    service._sltp_original_bulk_histories = original
     service._bulk_histories = shared_bulk
     service.BULK_CACHE_LIMIT = 1
     service._sltp_shared_bulk = True
@@ -205,6 +210,50 @@ def run_strategy(key, start, end):
     import gc as _gc
     _gc.collect()
     return text
+
+
+# The lab variable the phone page asks for. It is deliberately exposed in
+# the worker globals so later terminal commands can inspect it.
+LAB_HISTORIES = {}
+
+def load_all_market_data(start="2022-01-01", end=None, chunk_size=1000):
+    from sltp.data import market_data_service as service
+    universe = service.get_all_tickers()
+    # Use the undecorated reader so each 1,000-ticker batch is actually a
+    # separate batch instead of the shared-cache wrapper decoding the world.
+    reader = getattr(service, "_sltp_original_bulk_histories", service._bulk_histories)
+    histories = {}
+    started = time.perf_counter()
+    for offset in range(0, len(universe), chunk_size):
+        batch = universe[offset:offset + chunk_size]
+        try:
+            part = reader(batch, start, end or None)
+            histories.update(part)
+        except Exception as error:
+            continue
+        elapsed = time.perf_counter() - started
+    rows = 0
+    for frame in histories.values():
+        try:
+            rows += len(frame)
+        except Exception:
+            pass
+    globals()["LAB_UNIVERSE"] = universe
+    globals()["LAB_HISTORIES"] = histories
+    return json.dumps({"tickers": len(histories), "universe": len(universe), "rows": rows})
+
+
+def run_terminal(code):
+    import io
+    import contextlib
+    import traceback
+    output = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(output):
+            exec(compile(code, "<lab>", "exec"), globals())
+        return json.dumps({"ok": True, "stdout": output.getvalue()})
+    except Exception:
+        return json.dumps({"ok": False, "stdout": output.getvalue(), "error": traceback.format_exc()})
 
 
 def prime_remote_cache():
@@ -420,6 +469,18 @@ self.onmessage = async (event: MessageEvent<Incoming>) => {
     if (message.kind === 'run') {
       const runStrategy = pyodide.globals.get('run_strategy');
       const text = String(runStrategy(message.key, message.start, message.end));
+      reply(message.id, message.kind, true, text);
+      return;
+    }
+    if (message.kind === 'lab-load') {
+      const loadAll = pyodide.globals.get('load_all_market_data');
+      const text = String(loadAll(message.start, message.end));
+      reply(message.id, message.kind, true, text);
+      return;
+    }
+    if (message.kind === 'python') {
+      const runTerminal = pyodide.globals.get('run_terminal');
+      const text = String(runTerminal(message.code));
       reply(message.id, message.kind, true, text);
       return;
     }

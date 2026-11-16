@@ -178,12 +178,43 @@ const formatMetricValue = (val: any, key = ''): string => {
   return String(val)
 }
 
+const metricTone = (key: string, value: any): string => {
+  const normalizedKey = key.toLowerCase().replace(/[^a-z0-9]/g, '')
+  const isNumeric = typeof value === 'number'
+  const isPositive = isNumeric && value > 0
+  const isNegative = isNumeric && value < 0
+
+  if (normalizedKey.includes('winrate')) return 'is-positive'
+  if (normalizedKey.includes('return') || normalizedKey.includes('cagr')) {
+    return isPositive ? 'is-positive' : isNegative ? 'is-negative' : ''
+  }
+  if (normalizedKey.includes('drawdown') || normalizedKey.includes('lossrate')) {
+    return 'is-negative'
+  }
+  if (normalizedKey.includes('cost')) return 'is-negative'
+  return ''
+}
+
+interface StrategyChartProps {
+  initialStrategyId?: string
+  chartStyle?: 'candles' | 'line'
+  onChartStyleChange?: (next: 'candles' | 'line') => void
+}
+
 export default function StrategyChart({
   initialStrategyId,
-}: {
-  initialStrategyId?: string
-} = {}) {
+  chartStyle,
+  onChartStyleChange,
+}: StrategyChartProps = {}) {
   const engine = useEngineStatus()
+  const [localChartStyle, setLocalChartStyle] = useState<'candles' | 'line'>(
+    chartStyle ?? 'candles'
+  )
+  const activeChartStyle = chartStyle ?? localChartStyle
+  const changeChartStyle = (next: 'candles' | 'line') => {
+    if (onChartStyleChange) onChartStyleChange(next)
+    else setLocalChartStyle(next)
+  }
   const engineUnsupported = engine.phase === 'unsupported'
   const [strategies, setStrategies] = useState<StrategyOption[]>([])
   // The strategy library is read from the store on mount.
@@ -286,17 +317,21 @@ export default function StrategyChart({
   const chartData = useMemo(() => backtestResult?.chart_data || [], [backtestResult])
   const rawMetrics = useMemo(() => backtestResult?.metrics || {}, [backtestResult])
 
-  // The chart core is shared with the stock chart. Equity points become a
-  // line series with zero volume, and `fit` shows the whole run at once.
+  // The chart core is shared with the stock chart. Equity points carry one
+  // value per session; the candle view widens that value into a small body
+  // and wick, while the line view reads the same closes. `fit` shows the whole
+  // run at once in either style.
   const equityBars: Bar[] = useMemo(() => {
     return chartData.map((point, index) => {
       const close = point.portfolio_value
-      const previous = index > 0 ? chartData[index - 1]!.portfolio_value : close
+      const open = index > 0 ? chartData[index - 1]!.portfolio_value : close
+      const high = Math.max(open, close) * (open === close ? 1.001 : 1.0005)
+      const low = Math.min(open, close) * (open === close ? 0.999 : 0.9995)
       return {
         date: point.date,
-        open: previous,
-        high: close,
-        low: close,
+        open,
+        high,
+        low,
         close,
         volume: 0,
       }
@@ -521,18 +556,38 @@ export default function StrategyChart({
             <>
               <article className="strategy-chart-container">
                 <div className="strategy-chart-header">
-                  <h3 className="strategy-title">{backtestResult.strategy_name}</h3>
-                  {chartData.length > 0 && (
-                    <span className="strategy-subtext">
-                      {chartData[0].date} to {chartData[chartData.length - 1].date}
-                    </span>
-                  )}
+                  <div className="strategy-chart-title-row">
+                    <h3 className="strategy-title">{backtestResult.strategy_name}</h3>
+                    {chartData.length > 0 && (
+                      <span className="strategy-subtext">
+                        {chartData[0].date} to {chartData[chartData.length - 1].date}
+                      </span>
+                    )}
+                  </div>
+                  <div className="strategy-chart-style" role="group" aria-label="Equity chart style">
+                    <button
+                      type="button"
+                      className={activeChartStyle === 'candles' ? 'is-active' : ''}
+                      aria-pressed={activeChartStyle === 'candles'}
+                      onClick={() => changeChartStyle('candles')}
+                    >
+                      Candles
+                    </button>
+                    <button
+                      type="button"
+                      className={activeChartStyle === 'line' ? 'is-active' : ''}
+                      aria-pressed={activeChartStyle === 'line'}
+                      onClick={() => changeChartStyle('line')}
+                    >
+                      Line
+                    </button>
+                  </div>
                 </div>
 
                 <Chart
                   bars={equityBars}
                   ticker={backtestResult.strategy_id}
-                  chartStyle="line"
+                  chartStyle={activeChartStyle}
                   variant="equity"
                   valueFormatter={formatNumber}
                   showVolume={false}
@@ -549,32 +604,34 @@ export default function StrategyChart({
                   {backtestResult.timings && (
                     <p className="run-timing">{timingLine(backtestResult.timings)}</p>
                   )}
+                  <div className="strategy-metrics-table-wrap">
+                    <table className="strategy-metrics-table">
+                      <thead>
+                        <tr>
+                          <th scope="col">Metric</th>
+                          <th scope="col">Value</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {orderedMetricsList.map(({ key, label, value }) => (
+                          <tr key={key}>
+                            <th scope="row">{label}</th>
+                            <td className={metricTone(key, value)}>{formatMetricValue(value, key)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
                   <div className="strategy-metrics-grid">
-                    {orderedMetricsList.map(({ key, label, value }) => {
-                      const normalizedKey = key.toLowerCase().replace(/[^a-z0-9]/g, '')
-                      const formattedVal = formatMetricValue(value, key)
-                      const isNumeric = typeof value === 'number'
-                      const isPositive = isNumeric && value > 0
-                      const isNegative = isNumeric && value < 0
-
-                      let colorClass = ''
-                      if (normalizedKey.includes('winrate')) {
-                        colorClass = 'is-positive'
-                      } else if (normalizedKey.includes('return') || normalizedKey.includes('cagr')) {
-                        colorClass = isPositive ? 'is-positive' : isNegative ? 'is-negative' : ''
-                      } else if (normalizedKey.includes('drawdown') || normalizedKey.includes('lossrate')) {
-                        colorClass = 'is-negative'
-                      } else if (normalizedKey.includes('cost')) {
-                        colorClass = 'is-negative'
-                      }
-
-                      return (
-                        <div className="strategy-metric" key={key}>
-                          <span className="strategy-metric-label">{label}</span>
-                          <span className={`strategy-metric-value ${colorClass}`}>{formattedVal}</span>
-                        </div>
-                      )
-                    })}
+                    {orderedMetricsList.map(({ key, label, value }) => (
+                      <div className="strategy-metric" key={key}>
+                        <span className="strategy-metric-label">{label}</span>
+                        <span className={`strategy-metric-value ${metricTone(key, value)}`}>
+                          {formatMetricValue(value, key)}
+                        </span>
+                      </div>
+                    ))}
                   </div>
                 </article>
               )}

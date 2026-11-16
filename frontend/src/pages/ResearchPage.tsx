@@ -21,7 +21,13 @@ import { LoaderRow, LoaderScreen } from '../ui/Loader'
 import { GlossaryText } from '../components/GlossaryText'
 import { STRATEGY_GLOSSARY } from '../../lib/glossary'
 import './ResearchPage.css'
-import { chartMaxBarsToNumber, readChartMaxBars, type ResearchTimeframe } from '../../lib/settings'
+import {
+  chartMaxBarsToNumber,
+  readChartMaxBars,
+  readStrategyChartStyle,
+  type ResearchTimeframe,
+  type StrategyChartStyle,
+} from '../../lib/settings'
 import {
   getTickerDirectory,
   IS_MOBILE,
@@ -280,6 +286,9 @@ export default function ResearchPage({ initialSettings, initialStrategyId }: Res
   const [chartStyle, setChartStyle] = useState<ChartStyle>(
     initialSettings?.chartStyle === 'line' ? 'line' : 'candles'
   )
+  const [strategyChartStyle, setStrategyChartStyle] = useState<StrategyChartStyle>(
+    readStrategyChartStyle(initialSettings)
+  )
 
   const [stockData, setStockData] = useState<StockHistory | null>(null)
   const [loading, setLoading] = useState(false)
@@ -322,7 +331,10 @@ export default function ResearchPage({ initialSettings, initialStrategyId }: Res
     if (initialSettings?.chartStyle === 'line' || initialSettings?.chartStyle === 'candles') {
       setChartStyle(initialSettings.chartStyle as ChartStyle)
     }
-  }, [initialSettings?.defaultTimeframe, initialSettings?.chartStyle])
+    if (initialSettings?.strategyChartStyle === 'line' || initialSettings?.strategyChartStyle === 'candles') {
+      setStrategyChartStyle(initialSettings.strategyChartStyle)
+    }
+  }, [initialSettings?.defaultTimeframe, initialSettings?.chartStyle, initialSettings?.strategyChartStyle])
 
   useEffect(() => {
     let cancelled = false
@@ -795,7 +807,13 @@ export default function ResearchPage({ initialSettings, initialStrategyId }: Res
             </>
           )}
 
-          {mode === 'strategies' && <StrategyChart initialStrategyId={initialStrategyId} />}
+          {mode === 'strategies' && (
+            <StrategyChart
+              initialStrategyId={initialStrategyId}
+              chartStyle={strategyChartStyle}
+              onChartStyleChange={setStrategyChartStyle}
+            />
+          )}
         </div>
 
         {mode === 'stocks' && <CandlestickGuide />}

@@ -26,6 +26,16 @@ export type UserSettings = { theme?: string; [key: string]: any }
  */
 export type ChartMaxBars = '1000' | '1500' | '2000' | 'all'
 
+/** How a strategy run's equity curve is drawn. */
+export type StrategyChartStyle = 'candles' | 'line'
+
+export const DEFAULT_STRATEGY_CHART_STYLE: StrategyChartStyle = 'candles'
+
+/** Read the saved equity style, falling back to candles for older accounts. */
+export function readStrategyChartStyle(settings?: UserSettings | null): StrategyChartStyle {
+  return settings?.strategyChartStyle === 'line' ? 'line' : DEFAULT_STRATEGY_CHART_STYLE
+}
+
 /** Past this the chart spends more time drawing candles than the pointer does moving. */
 export const CHART_MAX_BARS_WARNING_ABOVE = 1500
 

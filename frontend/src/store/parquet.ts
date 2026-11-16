@@ -27,6 +27,7 @@ import wasmUrl from 'parquet-wasm/esm/parquet_wasm_bg.wasm?url';
 import { parseTable } from 'arrow-js-ffi';
 import { parquetMetadataAsync, parquetQuery } from 'hyparquet';
 import type { Data, Table, Vector } from 'apache-arrow';
+import { isFlatFile, readFlatBars, readFlatQuotes } from './flat';
 
 export interface WorkerRow {
   date: string;
@@ -210,6 +211,7 @@ function numberChunks(vector: Vector): NumberChunk[] {
  * order, which is date order inside one symbol's run.
  */
 export async function readBars(file: Blob, symbol: string): Promise<{ rows: WorkerRow[]; perf: QueryPerf }> {
+  if (await isFlatFile(file)) return readFlatBars(file, symbol);
   const t0 = performance.now();
   const { ranges, count } = await symbolRanges(file);
   const footerMs = performance.now() - t0;
@@ -287,6 +289,7 @@ export async function readQuotes(
   file: Blob,
   symbols: string[],
 ): Promise<{ quotes: Record<string, WorkerQuote>; perf: QueryPerf }> {
+  if (await isFlatFile(file)) return readFlatQuotes(file, symbols);
   const out: Record<string, WorkerQuote> = {};
   const perf = { fileBytes: file.size, footerMs: 0, parseMs: 0, rowsScanned: 0 };
   if (symbols.length === 0) return { quotes: out, perf };

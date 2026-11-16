@@ -527,8 +527,8 @@ export default function Chart({
   const detailTarget = chartStyle === 'line' ? 'point' : 'candle'
   const hint = variant === 'equity'
     ? isTouch
-      ? 'Tap a point for the value. Tap empty space to dismiss.'
-      : 'Hover a point for that session’s value.'
+      ? `Tap a ${detailTarget} for the value. Tap empty space to dismiss.`
+      : `Hover a ${detailTarget} for that session’s value.`
     : isTouch
       ? `Swipe to move, pinch or use +/− to zoom. Tap a ${detailTarget} for detail; tap empty space to dismiss.`
       : `Scroll to zoom, drag to pan, hover a ${detailTarget} for detail${showVolume ? ' and volume' : ''}.`
