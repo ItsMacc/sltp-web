@@ -650,11 +650,14 @@ self.onmessage = async (event: MessageEvent<Incoming>) => {
     if (!isLabCall && (!pyodide || !booted)) throw new Error('engine is not ready yet');
     if (message.kind === 'lab-warm') {
       await warmLab();
+      const instance = pyodide;
       let version = 'unknown';
-      try {
-        version = String(pyodide.runPython('python_version', { globals: labGlobals ?? undefined }));
-      } catch {
-        /* the version line is a nicety, not a contract */
+      if (instance) {
+        try {
+          version = String(instance.runPython('python_version', { globals: labGlobals ?? undefined }));
+        } catch {
+          /* the version line is a nicety, not a contract */
+        }
       }
       self.postMessage({
         type: 'ready',
@@ -680,10 +683,16 @@ self.onmessage = async (event: MessageEvent<Incoming>) => {
       return;
     }
     if (message.kind === 'reset-project') {
-      if (labReady && labGlobals) pyodide.runPython('reset_project()', { globals: labGlobals });
+      const instance = pyodide;
+      if (labReady && labGlobals && instance) {
+        instance.runPython('reset_project()', { globals: labGlobals });
+      }
       reply(message.id, message.kind, true, JSON.stringify({ ok: true }));
       return;
     }
+    // Research calls only get here on a booted kernel; the check is what the
+    // compiler needs after the Lab's early-boot path widened the guard above.
+    if (!pyodide) throw new Error('engine is not ready yet');
     if (message.kind === 'run') {
       const runStrategy = pyodide.globals.get('run_strategy');
       const text = String(runStrategy(message.key, message.start, message.end));
