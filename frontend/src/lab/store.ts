@@ -19,6 +19,7 @@
 
 import { supabase } from '../../lib/supabase';
 import { dropCachedBacktest, renameCachedBacktest } from './backtestCache';
+import * as guest from './guestStore';
 import {
   createLabBacktest as apiCreateLabBacktest,
   createLabFile as apiCreateLabFile,
@@ -136,6 +137,24 @@ export async function clearLabCache(): Promise<void> {
   }
 }
 
+/**
+ * True when nobody is signed in. The Lab is open to visitors, so every call
+ * below hands over to guestStore instead of failing without a token.
+ */
+async function guestMode(): Promise<boolean> {
+  try {
+    const { data: { session: live } } = await supabase.auth.getSession();
+    return !live?.access_token;
+  } catch {
+    return true;
+  }
+}
+
+/** True when the Lab is running on this browser only (nobody signed in). */
+export async function isGuestSession(): Promise<boolean> {
+  return guestMode();
+}
+
 async function session(): Promise<{ token: string; userId: string }> {
   const { data: { session: live } } = await supabase.auth.getSession();
   if (!live?.access_token) {
@@ -157,6 +176,7 @@ async function dropProject(userId: string, projectId: string): Promise<void> {
 
 // -------- Workspaces --------
 export async function listLabWorkspaces(): Promise<LabWorkspace[]> {
+  if (await guestMode()) return guest.listLabWorkspaces();
   const { token, userId } = await session();
   const key = cacheKey(userId, 'workspaces');
   const cached = cachedNow<LabWorkspace[]>(key);
@@ -181,6 +201,7 @@ export async function createLabWorkspace(input: {
   code?: string;
   settings?: Record<string, unknown>;
 }): Promise<LabWorkspace> {
+  if (await guestMode()) return guest.createLabWorkspace(input);
   const { token, userId } = await session();
   const created = await apiCreateLabWorkspace(token, input);
   await dropWorkspaces(userId);
@@ -193,6 +214,7 @@ export async function createLabWorkspace(input: {
 export async function getLabProjectRunSettings(
   projectId: string,
 ): Promise<Record<string, unknown> | null> {
+  if (await guestMode()) return guest.getLabProjectRunSettings(projectId);
   const { token } = await session();
   try {
     const data = await apiGetLabProjectSettings(token, projectId);
@@ -208,6 +230,7 @@ export async function saveLabProjectRunSettings(
   projectId: string,
   settings: Record<string, unknown>,
 ): Promise<void> {
+  if (await guestMode()) return guest.saveLabProjectRunSettings(projectId, settings);
   const { token } = await session();
   await apiSaveLabProjectSettings(token, projectId, settings);
 }
@@ -219,6 +242,7 @@ export async function createLabStrategy(
   code?: string,
   settings?: Record<string, unknown>,
 ): Promise<LabWorkspace> {
+  if (await guestMode()) return guest.createLabStrategy(workspaceId, name, template, code, settings);
   const { token, userId } = await session();
   const created = await apiCreateLabStrategy(token, workspaceId, name, template, code, settings);
   await dropWorkspaces(userId);
@@ -231,6 +255,7 @@ export async function createLabProject(
   template?: string,
   settings?: Record<string, unknown>,
 ): Promise<LabProject> {
+  if (await guestMode()) return guest.createLabProject(workspaceId, name, template, settings);
   const { token, userId } = await session();
   const created = await apiCreateLabProject(token, workspaceId, name, template, settings);
   await dropWorkspaces(userId);
@@ -238,12 +263,14 @@ export async function createLabProject(
 }
 
 export async function deleteLabWorkspace(workspaceId: string): Promise<void> {
+  if (await guestMode()) return guest.deleteLabWorkspace(workspaceId);
   const { token, userId } = await session();
   await apiDeleteLabWorkspace(token, workspaceId);
   await dropWorkspaces(userId);
 }
 
 export async function deleteLabProject(projectId: string): Promise<void> {
+  if (await guestMode()) return guest.deleteLabProject(projectId);
   const { token, userId } = await session();
   await apiDeleteLabProject(token, projectId);
   await dropProject(userId, projectId);
@@ -251,6 +278,7 @@ export async function deleteLabProject(projectId: string): Promise<void> {
 
 // -------- Files --------
 export async function getLabProjectFiles(projectId: string): Promise<LabProjectFiles> {
+  if (await guestMode()) return guest.getLabProjectFiles(projectId);
   const { token, userId } = await session();
   const key = cacheKey(userId, `project:${projectId}`);
   const cached = cachedNow<LabProjectFiles>(key);
@@ -273,6 +301,7 @@ export async function saveLabFiles(
   projectId: string,
   files: { path: string; content: string }[],
 ): Promise<{ saved: string[]; locked_skipped: string[] }> {
+  if (await guestMode()) return guest.saveLabFiles(projectId, files);
   const { token, userId } = await session();
   const result = await apiSaveLabFiles(token, projectId, files);
   await dropProject(userId, projectId);
@@ -286,18 +315,21 @@ export async function flushLabFilesOnExit(
   projectId: string,
   files: { path: string; content: string }[],
 ): Promise<void> {
+  if (await guestMode()) return guest.flushLabFilesOnExit(projectId, files);
   const { token, userId } = await session();
   apiSaveLabFilesOnExit(token, projectId, files);
   await dropProject(userId, projectId);
 }
 
 export async function saveLabFile(projectId: string, name: string, content: string): Promise<void> {
+  if (await guestMode()) return guest.saveLabFile(projectId, name, content);
   const { token, userId } = await session();
   await apiSaveLabFile(token, projectId, name, content);
   await dropProject(userId, projectId);
 }
 
 export async function createLabFile(projectId: string, name: string): Promise<LabFile> {
+  if (await guestMode()) return guest.createLabFile(projectId, name);
   const { token, userId } = await session();
   const file = await apiCreateLabFile(token, projectId, name);
   await dropProject(userId, projectId);
@@ -309,6 +341,7 @@ export async function renameLabFile(
   name: string,
   newName: string,
 ): Promise<{ name: string; previous: string }> {
+  if (await guestMode()) return guest.renameLabFile(projectId, name, newName);
   const { token, userId } = await session();
   const renamed = await apiRenameLabFile(token, projectId, name, newName);
   await dropProject(userId, projectId);
@@ -316,12 +349,14 @@ export async function renameLabFile(
 }
 
 export async function deleteLabFile(projectId: string, name: string): Promise<void> {
+  if (await guestMode()) return guest.deleteLabFile(projectId, name);
   const { token, userId } = await session();
   await apiDeleteLabFile(token, projectId, name);
   await dropProject(userId, projectId);
 }
 
 export async function deleteLabFolder(projectId: string, name: string): Promise<void> {
+  if (await guestMode()) return guest.deleteLabFolder(projectId, name);
   const { token, userId } = await session();
   await apiDeleteLabFolder(token, projectId, name);
   await dropProject(userId, projectId);
@@ -332,6 +367,7 @@ export async function importLabFiles(
   files: { path: string; content: string }[],
   folders: string[] = [],
 ): Promise<{ imported: string[]; skipped: { path: string; reason: string }[] }> {
+  if (await guestMode()) return guest.importLabFiles(projectId, files, folders);
   const { token, userId } = await session();
   const result = await apiImportLabFiles(token, projectId, files, folders);
   await dropProject(userId, projectId);
@@ -358,6 +394,7 @@ function dropBacktestLists(userId: string): void {
 }
 
 export async function listLabBacktests(projectId: string): Promise<LabBacktestSummary[]> {
+  if (await guestMode()) return guest.listLabBacktests(projectId);
   const { token, userId } = await session();
   const key = backtestListKey(userId, projectId);
   const cached = cachedNow<LabBacktestSummary[]>(key);
@@ -378,6 +415,7 @@ export async function createLabBacktest(
   payload: unknown,
   name?: string,
 ): Promise<LabBacktestSummary> {
+  if (await guestMode()) return guest.createLabBacktest(projectId, payload, name);
   const { token, userId } = await session();
   const created = await apiCreateLabBacktest(token, projectId, payload, name);
   dropEntry(backtestListKey(userId, projectId));
@@ -385,6 +423,7 @@ export async function createLabBacktest(
 }
 
 export async function getLabBacktest(backtestId: string): Promise<LabBacktestRecord> {
+  if (await guestMode()) return guest.getLabBacktest(backtestId);
   const { token } = await session();
   return apiGetLabBacktest(token, backtestId);
 }
@@ -393,6 +432,7 @@ export async function renameLabBacktest(
   backtestId: string,
   name: string,
 ): Promise<LabBacktestSummary> {
+  if (await guestMode()) return guest.renameLabBacktest(backtestId, name);
   const { token, userId } = await session();
   const renamed = await apiRenameLabBacktest(token, backtestId, name);
   await renameCachedBacktest(backtestId, renamed.name);
@@ -401,6 +441,7 @@ export async function renameLabBacktest(
 }
 
 export async function deleteLabBacktest(backtestId: string): Promise<void> {
+  if (await guestMode()) return guest.deleteLabBacktest(backtestId);
   const { token, userId } = await session();
   await apiDeleteLabBacktest(token, backtestId);
   await dropCachedBacktest(backtestId);
@@ -421,6 +462,7 @@ const prefetched = new Set<string>();
  * cannot load will still show its own error when opened.
  */
 export async function prefetchLabProjects(projectIds: string[]): Promise<void> {
+  if (await guestMode()) return guest.prefetchLabProjects(projectIds);
   const queue = projectIds.filter((id) => id && !prefetched.has(id));
   for (const id of queue) prefetched.add(id);
   const worker = async (): Promise<void> => {

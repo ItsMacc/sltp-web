@@ -1203,3 +1203,46 @@
 :root[data-theme="light"] .lab-editor-placeholder {
   color: var(--ide-muted);
 }
+
+/* ---------- Signed-out banner ---------- */
+/* One yellow strip above the editor. It names the trade (this browser, not an
+   account) and offers sign-in without demanding it. */
+.lab-guest-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+  padding: 0.55rem var(--space-md);
+  border-bottom: 1px solid color-mix(in oklab, var(--warning) 35%, var(--border-subtle));
+  background: color-mix(in oklab, var(--warning) 12%, var(--bg-canvas));
+  color: var(--warning);
+  font-size: var(--text-xs);
+}
+
+.lab-guest-banner > svg {
+  flex: none;
+}
+
+.lab-guest-banner p {
+  flex: 1;
+  min-width: 12rem;
+  margin: 0;
+  line-height: 1.5;
+  text-wrap: pretty;
+}
+
+.lab-guest-signin {
+  flex: none;
+  padding: 0.25rem 0.6rem;
+  border: 1px solid color-mix(in oklab, var(--warning) 45%, transparent);
+  border-radius: 6px;
+  background: var(--bg-surface);
+  color: var(--warning);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.lab-guest-signin:hover {
+  background: color-mix(in oklab, var(--warning) 18%, var(--bg-surface));
+}

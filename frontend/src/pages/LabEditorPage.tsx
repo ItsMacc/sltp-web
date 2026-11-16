@@ -35,6 +35,7 @@ import {
   FolderInput,
   History,
   Laptop,
+  CloudOff,
   Lock,
   Pencil,
   Play,
@@ -49,6 +50,7 @@ import {
 import * as Collapsible from '@radix-ui/react-collapsible';
 import {
   createLabBacktest,
+  isGuestSession,
   createLabFile,
   deleteLabFile,
   deleteLabFolder,
@@ -244,6 +246,18 @@ export default function LabEditorPage({ project, workspaceName, onBack }: LabEdi
     queryFn: () => getLabProjectFiles(project.id),
   });
   const [actionError, setActionError] = useState<string | null>(null);
+  // Signed out, the Lab still works: every file and result lives in this
+  // browser. The banner says so once, with a way to sign in if they want to.
+  const [guest, setGuest] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    void isGuestSession().then((value) => {
+      if (alive) setGuest(value);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
   const error = actionError ?? (projectFilesQuery.error instanceof Error
     ? projectFilesQuery.error.message
     : projectFilesQuery.error ? 'Could not load the workspace files.' : null);
@@ -1332,6 +1346,23 @@ export default function LabEditorPage({ project, workspaceName, onBack }: LabEdi
 
   return (
     <div className={`lab-editor ${mobileDevice ? 'is-mobile-device' : ''}`}>
+      {guest && (
+        <div className="lab-guest-banner" role="status">
+          <CloudOff size={15} aria-hidden="true" />
+          <p>
+            This browser keeps your code and results, not your account. They stay here
+            until you clear site data.
+          </p>
+          <button
+            type="button"
+            className="lab-guest-signin"
+            onClick={() => window.dispatchEvent(new Event('sltp:open-signin'))}
+          >
+            Sign in to save them
+          </button>
+        </div>
+      )}
+
       {error && <p className="lab-status is-error lab-editor-error">{error}</p>}
 
       <div className="lab-mobile-gate">
