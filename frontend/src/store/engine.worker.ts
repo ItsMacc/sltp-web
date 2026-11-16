@@ -30,7 +30,7 @@ const PYODIDE_INDEX_URL = 'https://cdn.jsdelivr.net/pyodide/v314.0.7/full/';
     numpy, pyarrow and python-dateutil all ship in the Pyodide distribution
     and are loaded as binary packages, because a WASM runtime cannot use the
     CPython wheels on PyPI. */
-const SLTP_VERSION = '0.1.39';
+const SLTP_VERSION = '0.1.40';
 
 /** The slice of the Pyodide JS API this worker touches. */
 /** The Lab's analyser pins: the same wheels the Lab used to install itself. */
@@ -305,7 +305,7 @@ def prime_remote_cache():
     # mounted there) and the catalog beside it in ~/.sltp/cache/symbol_data,
     # while the bucket and the browser sync both write the uppercase
     # SYMBOL_DATA/ name. Mirror the small metadata files onto the lowercase
-    # path the readers open. Bars need no move: a 0.1.39 bundle is already
+    # path the readers open. Bars need no move: a flat bundle is already
     # a MARKET_DAILY/market_data_<year>.bin. Runs at every boot, so a
     # half-written file heals itself on the next visit.
     import shutil

@@ -80,14 +80,16 @@ export const DATA: DocGroup = {
           kind: 'ul',
           items: [
             <>
-              One file per year, named <C>market_data_YYYY.parquet</C>.
+              One file per year, named <C>market_data_YYYY.bin</C>: a self-contained bundle with a short
+              preamble, a JSON header naming each symbol&apos;s rows and each column&apos;s offset, then the columns.
             </>,
             <>
               <C>market_actions.parquet</C> for splits and dividends.
             </>,
             <>
-              Columns <C>Symbol</C>, <C>Date</C>, <C>Open</C>, <C>High</C>, <C>Low</C>, <C>Close</C>,{' '}
-              <C>Volume</C>, with dates as day numbers and rows sorted.
+              Columns are fixed by the format: symbol and date as 16-bit integers,{' '}
+              <C>Open</C>, <C>High</C>, <C>Low</C>, <C>Close</C> and <C>Volume</C> as floats, with rows stored
+              symbol by symbol and date-ascending.
             </>,
           ],
         },
@@ -95,8 +97,8 @@ export const DATA: DocGroup = {
           kind: 'p',
           text: (
             <>
-              Row-group size is the engine's problem, not yours. Write the files in whatever way is convenient and
-              let the reader group them.
+              A folder of parquet bars converts to this layout with the offline converter in{' '}
+              <C>sltp.data.build_flat</C>. After that, nothing about a run changes.
             </>
           ),
         },
@@ -171,7 +173,7 @@ sltp backtest momentum.py --start 2019-01-01 --end 2023-12-31`,
           kind: 'p',
           text: (
             <>
-              The Parquet layout above is the current contract. More support for custom data is planned: additional
+              The bundle layout above is the current contract. More support for custom data is planned: additional
               ways to supply bars, and clearer checks when a directory is close but not quite right. Until that
               lands, <C>sltp data check</C> is the honest answer to "will this folder work".
             </>

@@ -58,6 +58,21 @@ export const FILLS: DocGroup = {
           kind: 'p',
           text: <>The manager prices every fill against the cash left after its own fee. An order whose resolved weight is larger than <C>cash ÷ equity</C> is refused. An order that fits is reduced by the fee at the fill, so <C>allocation=1.0</C> spends the book and borrows nothing.</>,
         },
+        { kind: 'h2', id: 'dust', text: 'A fill that buys nothing waits' },
+        {
+          kind: 'p',
+          text: <>Shrinking a fill to fit the cash can leave a notional worth fractions of a cent. Booking it would create a lot that reads as 0.00% allocation, still pays a fee, and holds a position slot for the rest of the run. A fill under <C>MIN_FILL_NOTIONAL</C> is not booked: the whole order carries to the next open.</>,
+        },
+        {
+          kind: 'p',
+          text: <>Zero or negative affordability carries the order for the same reason: nothing can be bought until an exit frees cash. An order that itself asks for a zero or negative allocation is a different case, and is still rejected as invalid.</>,
+        },
+        {
+          kind: 'code',
+          language: 'python',
+          code: `Backtester(strategy=MyStrategy(), min_fill_notional=0.01)  # the default
+Backtester(strategy=MyStrategy(), min_fill_notional=0.0)   # book every fill`,
+        },
         {
           kind: 'callout',
           tone: 'note',
