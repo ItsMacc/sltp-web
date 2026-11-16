@@ -75,8 +75,8 @@ export default function LabRunSettingsDialog({
               Backtest settings
             </h2>
             <p className="lab-run-settings-sub">
-              Dates and trading costs for the next run. These are remembered for
-              the next time you open the Lab.
+              Dates and trading costs for this workspace. They are stored with
+              it, so another workspace keeps its own.
             </p>
           </div>
         </header>
@@ -155,7 +155,19 @@ export default function LabRunSettingsDialog({
                 value={draft.borrowPct}
                 onChange={(event) => update('borrowPct', event.target.value)}
               />
+              <Input
+                label="Minimum fill ($)"
+                type="number"
+                min="0"
+                step="0.01"
+                value={draft.minFillDollars}
+                onChange={(event) => update('minFillDollars', event.target.value)}
+              />
             </div>
+            <p className="lab-run-settings-hint">
+              A fill smaller than the minimum is not booked: the order waits for the next
+              open. Set it to 0 to book every fill.
+            </p>
             <Checkbox
               label="Include dividends"
               description="Pay dividends to lots held from the previous close."

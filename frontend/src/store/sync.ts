@@ -28,7 +28,13 @@
 // file knows about that.
 
 import { useSyncExternalStore } from 'react';
-import { IS_MOBILE, MOBILE_HISTORY_START } from './device';
+import {
+  IS_MOBILE,
+  mobileHistoryStartFor,
+  readDataPlanYears,
+  writeDataPlanYears,
+  type DataPlanYears,
+} from './device';
 import { writeWithSyncAccess } from './opfsWrite';
 import {
   deleteFile,
@@ -302,9 +308,17 @@ const CATALOG_KEY = 'SYMBOL_DATA/symbol_catalog.parquet';
  * Sidecars are outside the plan — they always download with the priority pair.
  */
 export function planKeys(files: ManifestFile[]): string[] {
+  // Read the live choice, not the load-time constant: changing the plan
+  // re-plans this session without needing a reload first.
+  return planKeysFor(files, readDataPlanYears());
+}
+
+/** The same selection for any window, so a plan change can be shown and
+    applied without writing the new choice first. */
+export function planKeysFor(files: ManifestFile[], years: number): string[] {
   const ordered = newestFirst(barKeys(files));
   if (!IS_MOBILE) return ordered;
-  const floorYear = Number(MOBILE_HISTORY_START.slice(0, 4));
+  const floorYear = Number(mobileHistoryStartFor(years).slice(0, 4));
   return ordered.filter((key) => {
     const range = chunkRange(key);
     if (!range) return true; // the recent tail
@@ -871,7 +885,13 @@ async function runBoot(): Promise<void> {
           !key.endsWith('market_actions.parquet') &&
           !planSet.has(key),
       );
-    await Promise.all(stale.map((key) => deleteFile(key)));
+    await Promise.all(
+      stale.map(async (key) => {
+        const bytes = await fileSize(key);
+        if (bytes !== null) rememberPruned([{ key, bytes }]);
+        await deleteFile(key);
+      }),
+    );
     if (mobile && stale.length > 0) {
       // The per-ticker chart sidecars are keyed by era. Clearing them is
       // cheaper than walking year directories and guarantees a dropped era
@@ -992,6 +1012,99 @@ export async function prefetchOlder(): Promise<void> {
       phase: 'ready',
       error: err instanceof Error ? err.message : 'Prefetch stopped early',
     });
+  }
+}
+
+/** What a plan change would add or free, before anything is touched. */
+export interface DataPlanPreview {
+  years: DataPlanYears;
+  remove: { key: string; bytes: number }[];
+  add: { key: string; bytes: number }[];
+  removeBytes: number;
+  addBytes: number;
+  keepBytes: number;
+}
+
+/** Sizes of bar files this device freed, so a later preview can quote what
+    coming back would cost even when the manifest fetch is skipped. Bars are
+    immutable for a published year, so a remembered size stays true. */
+const PRUNED_SIZES_KEY = 'st_market_pruned_sizes';
+
+function readPrunedSizes(): Record<string, number> {
+  try {
+    const raw = JSON.parse(window.localStorage.getItem(PRUNED_SIZES_KEY) || '{}');
+    return raw && typeof raw === 'object' ? (raw as Record<string, number>) : {};
+  } catch {
+    return {};
+  }
+}
+
+function rememberPruned(entries: { key: string; bytes: number }[]): void {
+  if (entries.length === 0) return;
+  try {
+    const sizes = { ...readPrunedSizes() };
+    for (const entry of entries) sizes[entry.key] = entry.bytes;
+    window.localStorage.setItem(PRUNED_SIZES_KEY, JSON.stringify(sizes));
+  } catch {
+    // A full quota only costs a slightly worse estimate in the dialog.
+  }
+}
+
+function isBarKey(key: string): boolean {
+  return (
+    key.startsWith('MARKET_DAILY/') &&
+    (key.endsWith('.parquet') || key.endsWith('.bin')) &&
+    !key.endsWith('market_actions.parquet')
+  );
+}
+
+/** Reads disk and manifest to say exactly what switching would do. */
+export async function previewDataPlan(years: DataPlanYears): Promise<DataPlanPreview> {
+  const manifest = await ensureManifest();
+  const next = new Set(planKeysFor(manifest.files, years));
+  const bytesByKey = new Map(manifest.files.map((f) => [f.key, f.bytes]));
+  const onDisk = (await listFiles('MARKET_DAILY').catch(() => [])).map((name) => `MARKET_DAILY/${name}`);
+  const remove: { key: string; bytes: number }[] = [];
+  for (const key of onDisk) {
+    if (!isBarKey(key) || next.has(key)) continue;
+    const actual = await fileSize(key);
+    remove.push({ key, bytes: actual ?? bytesByKey.get(key) ?? 0 });
+  }
+  const add: { key: string; bytes: number }[] = [];
+  let keepBytes = 0;
+  for (const key of next) {
+    const expected = bytesByKey.get(key) ?? 0;
+    const actual = await fileSize(key);
+    if (actual === expected && expected > 0) keepBytes += actual ?? 0;
+    else add.push({ key, bytes: expected });
+  }
+  return {
+    years,
+    remove,
+    add,
+    removeBytes: remove.reduce((sum, entry) => sum + entry.bytes, 0),
+    addBytes: add.reduce((sum, entry) => sum + entry.bytes, 0),
+    keepBytes,
+  };
+}
+
+/**
+ * Switches this device's market plan and makes the disk match it: bars outside
+ * the new window are deleted (their sizes are remembered), bars inside it that
+ * are missing are fetched, and the plan count in the UI follows. The boot
+ * sequence already does exactly this, so the change is a boot with the new
+ * choice written first rather than a second implementation of the sweep.
+ */
+export async function applyDataPlan(years: DataPlanYears): Promise<void> {
+  writeDataPlanYears(years);
+  // A device that already has a cache is not a new device: re-planning must
+  // not spend the gate's reserve as if this were a first visit.
+  const wasFirstSync = firstSync;
+  resetMarketSyncForTests();
+  firstSync = wasFirstSync;
+  await bootMarketSync();
+  if (status.phase === 'error') {
+    throw new Error(status.error ?? 'Market data could not be prepared.');
   }
 }
 

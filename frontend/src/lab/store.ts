@@ -23,6 +23,8 @@ import {
   createLabBacktest as apiCreateLabBacktest,
   createLabFile as apiCreateLabFile,
   createLabProject as apiCreateLabProject,
+  getLabProjectSettings as apiGetLabProjectSettings,
+  saveLabProjectSettings as apiSaveLabProjectSettings,
   createLabStrategy as apiCreateLabStrategy,
   createLabWorkspace as apiCreateLabWorkspace,
   deleteLabBacktest as apiDeleteLabBacktest,
@@ -177,6 +179,7 @@ export async function createLabWorkspace(input: {
   strategy_name: string;
   template?: string;
   code?: string;
+  settings?: Record<string, unknown>;
 }): Promise<LabWorkspace> {
   const { token, userId } = await session();
   const created = await apiCreateLabWorkspace(token, input);
@@ -184,14 +187,40 @@ export async function createLabWorkspace(input: {
   return created;
 }
 
+// -------- Per-workspace run settings --------
+// Stored in Turso with the project, not in the account row: a workspace is the
+// unit of an experiment, and the account only supplies the starting values.
+export async function getLabProjectRunSettings(
+  projectId: string,
+): Promise<Record<string, unknown> | null> {
+  const { token } = await session();
+  try {
+    const data = await apiGetLabProjectSettings(token, projectId);
+    return data.settings ?? null;
+  } catch {
+    // A workspace created before this existed has no row; the editor falls
+    // back to the account defaults.
+    return null;
+  }
+}
+
+export async function saveLabProjectRunSettings(
+  projectId: string,
+  settings: Record<string, unknown>,
+): Promise<void> {
+  const { token } = await session();
+  await apiSaveLabProjectSettings(token, projectId, settings);
+}
+
 export async function createLabStrategy(
   workspaceId: string,
   name: string,
   template?: string,
   code?: string,
+  settings?: Record<string, unknown>,
 ): Promise<LabWorkspace> {
   const { token, userId } = await session();
-  const created = await apiCreateLabStrategy(token, workspaceId, name, template, code);
+  const created = await apiCreateLabStrategy(token, workspaceId, name, template, code, settings);
   await dropWorkspaces(userId);
   return created;
 }
@@ -200,9 +229,10 @@ export async function createLabProject(
   workspaceId: string,
   name: string,
   template?: string,
+  settings?: Record<string, unknown>,
 ): Promise<LabProject> {
   const { token, userId } = await session();
-  const created = await apiCreateLabProject(token, workspaceId, name, template);
+  const created = await apiCreateLabProject(token, workspaceId, name, template, settings);
   await dropWorkspaces(userId);
   return created;
 }

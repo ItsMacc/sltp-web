@@ -236,7 +236,13 @@ export async function listLabWorkspaces(token: string): Promise<LabWorkspace[]> 
 
 export async function createLabWorkspace(
   token: string,
-  input: { workspace_name: string; strategy_name: string; template?: string; code?: string },
+  input: {
+    workspace_name: string;
+    strategy_name: string;
+    template?: string;
+    code?: string;
+    settings?: Record<string, unknown>;
+  },
 ): Promise<LabWorkspace> {
   return authedFetch('/api/lab/workspaces', token, {
     method: 'POST',
@@ -250,10 +256,11 @@ export async function createLabStrategy(
   name: string,
   template?: string,
   code?: string,
+  settings?: Record<string, unknown>,
 ): Promise<LabWorkspace> {
   return authedFetch(`/api/lab/workspaces/${workspaceId}/strategies`, token, {
     method: 'POST',
-    body: JSON.stringify({ name, template: template ?? 'blank', code }),
+    body: JSON.stringify({ name, template: template ?? 'blank', code, settings }),
   });
 }
 
@@ -428,10 +435,30 @@ export async function createLabProject(
   workspaceId: string,
   name: string,
   template?: string,
+  settings?: Record<string, unknown>,
 ): Promise<LabProject> {
   return authedFetch(`/api/lab/workspaces/${workspaceId}/projects`, token, {
     method: 'POST',
-    body: JSON.stringify({ name, template: template ?? 'blank' }),
+    body: JSON.stringify({ name, template: template ?? 'blank', settings }),
+  });
+}
+
+/** The run settings stored with one workspace. */
+export async function getLabProjectSettings(
+  token: string,
+  projectId: string,
+): Promise<{ settings: Record<string, unknown> }> {
+  return authedFetch(`/api/lab/projects/${projectId}/settings`, token);
+}
+
+export async function saveLabProjectSettings(
+  token: string,
+  projectId: string,
+  settings: Record<string, unknown>,
+): Promise<{ settings: Record<string, unknown> }> {
+  return authedFetch(`/api/lab/projects/${projectId}/settings`, token, {
+    method: 'PUT',
+    body: JSON.stringify({ settings }),
   });
 }
 

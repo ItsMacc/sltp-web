@@ -13,6 +13,7 @@ import {
   type LabWorkspace,
 } from '../lab/store';
 import { getTemplate, type LabTemplateId } from '../lab/templates';
+import { accountLabDefaults } from '../lab/runSettings';
 import type { LabCreateMode, NewWorkspaceInput } from './LabNewProject';
 import Button from '../ui/Button';
 import Select from '../ui/Select';
@@ -343,13 +344,23 @@ export default function LabPage({ onNavigate }: LabPageProps) {
     // Send the code the wizard showed, so the file the user opens is exactly
     // the template they picked.
     const code = getTemplate(input.template).code;
+    // A new workspace starts on the account's Settings → Lab backtests values;
+    // from then on its settings travel with the workspace in Turso.
+    const settings = accountLabDefaults();
     const workspace = input.workspaceId
-      ? await createLabStrategy(input.workspaceId, input.strategyName, input.template, code)
+      ? await createLabStrategy(
+          input.workspaceId,
+          input.strategyName,
+          input.template,
+          code,
+          { ...settings },
+        )
       : await createLabWorkspace({
           workspace_name: input.workspaceName,
           strategy_name: input.strategyName,
           template: input.template,
           code,
+          settings: { ...settings },
         });
     setWizard((w) => ({ ...w, open: false }));
     setWorkspaces((current) => {

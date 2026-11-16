@@ -37,13 +37,18 @@ import {
   type Quote,
   type TickerInfo,
 } from '../store'
+import { DATA_PLAN_YEARS } from '../store/device'
 
-// Phones hold the recent pair of chunks, not 28 years: their longest view
-// is the 5 years those files cover, and neither '10Y' nor 'all history' is
-// offered. Ten years of bars crashed the tab on iOS Safari.
+// Phones hold the recent pair of chunks, not 28 years: their longest view is
+// whatever the device's data plan covers (5 or 10 years), and 'all history'
+// is never offered there.
 const MOBILE_VIEW = IS_MOBILE
 
-const TIMEFRAMES: ResearchTimeframe[] = MOBILE_VIEW ? ['1y', '2y', '5y'] : ['1y', '2y', '5y', 'all']
+const TIMEFRAMES: ResearchTimeframe[] = MOBILE_VIEW
+  ? DATA_PLAN_YEARS === 10
+    ? ['1y', '2y', '5y', '10y']
+    : ['1y', '2y', '5y']
+  : ['1y', '2y', '5y', 'all']
 
 const TIMEFRAME_LABEL: Record<ResearchTimeframe, string> = {
   '1y': '1Y',

@@ -54,10 +54,12 @@ import {
   deleteLabFolder,
   flushLabFilesOnExit,
   getLabProjectFiles,
+  getLabProjectRunSettings,
   importLabFiles,
   renameLabBacktest,
   renameLabFile,
   saveLabFiles,
+  saveLabProjectRunSettings,
   type LabBacktestSummary,
   type LabProject,
 } from '../lab/store';
@@ -70,8 +72,7 @@ import LabBacktestsWindow from '../lab/LabBacktestsWindow';
 import LabRunProgress from '../lab/LabRunProgress';
 import LabRunSettingsDialog from '../lab/LabRunSettings';
 import {
-  readLabRunSettings,
-  saveLabRunSettings,
+  accountLabDefaults,
   toEngineSettings,
   type LabRunSettings,
 } from '../lab/runSettings';
@@ -281,8 +282,22 @@ export default function LabEditorPage({ project, workspaceName, onBack }: LabEdi
   // The dates and costs the next run uses. The dialog starts at the engine
   // defaults, so a first run needs no setup.
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [runSettings, setRunSettings] = useState<LabRunSettings>(readLabRunSettings);
+  const [runSettings, setRunSettings] = useState<LabRunSettings>(accountLabDefaults);
   const mobileDevice = IS_MOBILE;
+
+  // A workspace carries its own dates and costs in Turso. They start as the
+  // account's defaults (seeded on create) and belong to this workspace alone;
+  // the account row is never rewritten from here.
+  useEffect(() => {
+    let cancelled = false;
+    void getLabProjectRunSettings(project.id).then((stored) => {
+      if (cancelled || !stored) return;
+      setRunSettings((current) => ({ ...current, ...(stored as Partial<LabRunSettings>) }));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [project.id]);
 
   // Monaco sizes itself from its container, and in the stacked layout that box
   // is still zero when it mounts. An explicit pixel height from React means it
@@ -964,6 +979,22 @@ export default function LabEditorPage({ project, workspaceName, onBack }: LabEdi
           ? current.files.map((item) => item.name === name ? file : item)
           : [...current.files, file],
       }));
+      // A created file lands in a folder that may be collapsed, and the tree
+      // only draws what is open — so a file the server has could look missing
+      // until the next load. Open the path it went into.
+      if (name.includes('/')) {
+        const parts = name.split('/').slice(0, -1);
+        setExpandedFolders((previous) => {
+          const next = new Set(previous);
+          parts.reduce((path, part) => {
+            const folder = path ? `${path}/${part}` : part;
+            next.add(folder);
+            return folder;
+          }, '');
+          return next;
+        });
+      }
+      void queryClient.invalidateQueries({ queryKey: ['lab', 'project-files', project.id] });
       closeNewFile();
     } catch (err) {
       setFiles((previous) => previous.filter((item) => item.name !== name));
@@ -1701,8 +1732,12 @@ export default function LabEditorPage({ project, workspaceName, onBack }: LabEdi
         <LabRunSettingsDialog
           value={runSettings}
           onApply={(next) => {
-            saveLabRunSettings(next);
+            // This workspace keeps its own costs from here on; the account
+            // defaults are untouched, and so is every other workspace.
             setRunSettings(next);
+            void saveLabProjectRunSettings(project.id, { ...next }).catch(() => {
+              setActionError('Could not save these settings to the workspace.');
+            });
           }}
           onClose={() => setSettingsOpen(false)}
         />

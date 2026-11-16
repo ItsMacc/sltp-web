@@ -5,6 +5,8 @@
 // The dialog keeps its values as strings so a half-typed number does not snap
 // back; these helpers convert them once, when the run starts.
 
+import { readStoredUserSettings } from '../../lib/settings';
+
 const STORAGE_KEY = 'sltp.lab.runSettings';
 
 export interface LabRunSettings {
@@ -17,6 +19,8 @@ export interface LabRunSettings {
   spreadPct: string;
   participationPct: string;
   borrowPct: string;
+  /** Dollars. A fill below this carries to the next open instead of booking. */
+  minFillDollars: string;
 }
 
 /** What the Python worker receives. Rates are fractions, dates are ISO. */
@@ -29,6 +33,7 @@ export interface EngineRunSettings {
   spread_pct: number;
   max_participation: number | null;
   borrow_rate: number;
+  min_fill_notional: number;
 }
 
 /** The engine's own costs, in the units the fields show (percent). */
@@ -44,6 +49,7 @@ export function defaultLabRunSettings(): LabRunSettings {
     spreadPct: '0',
     participationPct: '',
     borrowPct: '0',
+    minFillDollars: '0.01',
   };
 }
 
@@ -62,7 +68,26 @@ export function toEngineSettings(settings: LabRunSettings): EngineRunSettings {
     spread_pct: fraction(settings.spreadPct),
     max_participation: participation ? Number(participation) / 100 : null,
     borrow_rate: fraction(settings.borrowPct),
+    // Dollars, not a percent: 0 turns the floor off, which the engine allows.
+    min_fill_notional: Math.max(0, Number(settings.minFillDollars.trim() || '0')),
   };
+}
+
+/**
+ * The account's Lab defaults from Settings → Lab backtests.
+ *
+ * These seed a new workspace. Once a workspace exists its own copy lives in
+ * Turso, so editing one workspace never moves another, and editing the
+ * account defaults never rewrites a workspace someone already tuned.
+ */
+export function accountLabDefaults(): LabRunSettings {
+  const defaults = defaultLabRunSettings();
+  const stored = readStoredUserSettings()?.labRunSettings;
+  if (stored && typeof stored === 'object') {
+    return { ...defaults, ...(stored as Partial<LabRunSettings>) };
+  }
+  // No account choice yet: the last run on this device is the best guess.
+  return readLabRunSettings();
 }
 
 /** The last settings used on this device, or the engine defaults. */
@@ -106,6 +131,7 @@ export function validateLabRunSettings(settings: LabRunSettings): string | null 
     ['Slippage', settings.slippagePct],
     ['Spread', settings.spreadPct],
     ['Borrow rate', settings.borrowPct],
+    ['Minimum fill', settings.minFillDollars],
   ] as const) {
     if (value.trim() === '') continue;
     const number = Number(value);

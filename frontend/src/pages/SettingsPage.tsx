@@ -15,6 +15,8 @@ import SuccessToast from '../ui/SuccessToast';
 import ConfirmDeleteDialog from '../ui/ConfirmDeleteDialog';
 import { SUPPORT_EMAIL } from '../data/contact';
 import { readStorageReport, type StorageReport } from '../store/storageReport';
+import { DATA_PLAN_YEARS, IS_MOBILE, type DataPlanYears } from '../store/device';
+import DataPlanDialog from '../components/DataPlanDialog';
 import { Check, Copy } from 'lucide-react';
 import { listApiKeys, createApiKey, revokeApiKey, type ApiKeySummary } from '../../lib/api';
 import {
@@ -94,6 +96,8 @@ export default function SettingsPage({ userId, userEmail, initialName, onProfile
   const [defaultZoom, setDefaultZoom] = useState(90);
   const [chartMaxBars, setChartMaxBars] = useState<ChartMaxBars>(DEFAULT_CHART_MAX_BARS);
   const [updateHorizon, setUpdateHorizon] = useState<UpdateHorizon>(DEFAULT_UPDATE_HORIZON);
+  /** A plan the reader picked but has not confirmed yet. */
+  const [pendingPlan, setPendingPlan] = useState<DataPlanYears | null>(null);
 
   // What this browser is holding, shown beside the horizon it is checked on.
   // The sync status already carries both, so the page adds no query of its own.
@@ -639,6 +643,35 @@ export default function SettingsPage({ userId, userEmail, initialName, onProfile
                 </div>
 
                 <div className="st-settings-field">
+                  <label className="st-settings-label">Market data plan</label>
+                  {IS_MOBILE ? (
+                    <>
+                      <RadioGroup
+                        name="dataPlan"
+                        value={String(DATA_PLAN_YEARS)}
+                        onChange={(val) => setPendingPlan(Number(val) === 10 ? 10 : 5)}
+                        options={[
+                          { label: '5 years', value: '5' },
+                          { label: '10 years', value: '10' },
+                        ]}
+                      />
+                      <span className="st-settings-hint">
+                        How much market history this phone keeps on disk. It is stored on the
+                        device, so your laptop keeps its full history either way. Changing it
+                        asks you to confirm first.
+                      </span>
+                    </>
+                  ) : (
+                    <span className="st-settings-hint">
+                      This device holds the full {''}
+                      <strong>28-year</strong> dataset, about 750 MB. It is built to read it
+                      efficiently, so there is nothing to trade away. A phone holds 5 or 10
+                      years instead, and chooses that on the phone.
+                    </span>
+                  )}
+                </div>
+
+                <div className="st-settings-field">
                   <label className="st-settings-label">Request update horizon</label>
                   <RadioGroup
                     name="updateHorizon"
@@ -957,6 +990,20 @@ export default function SettingsPage({ userId, userEmail, initialName, onProfile
                       onChange={(e) => setLabRunSettings((current) => ({ ...current, borrowPct: e.target.value }))}
                     />
                   </div>
+                  <div className="st-settings-lab-field">
+                    <label className="st-settings-label">Minimum fill ($)</label>
+                    <Input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={labRunSettings.minFillDollars}
+                      onChange={(e) => setLabRunSettings((current) => ({ ...current, minFillDollars: e.target.value }))}
+                    />
+                    <span className="st-settings-hint">
+                      A fill below this is not booked; the order waits for the next open. 0 books every
+                      fill. New workspaces start with these values.
+                    </span>
+                  </div>
                 </div>
 
                 <div className="st-settings-field">
@@ -1166,6 +1213,14 @@ export default function SettingsPage({ userId, userEmail, initialName, onProfile
           error={revokeError}
           onConfirm={handleConfirmRevoke}
           onCancel={() => { if (!revokingKey) setKeyToRevoke(null); }}
+        />
+      )}
+
+      {pendingPlan !== null && (
+        <DataPlanDialog
+          years={pendingPlan}
+          currentYears={DATA_PLAN_YEARS}
+          onClose={() => setPendingPlan(null)}
         />
       )}
 

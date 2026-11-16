@@ -7,7 +7,12 @@ import HomePage from './pages/HomePage';
 import SiteGuide from './components/SiteGuide';
 import 'driver.js/dist/driver.css';
 import SettingsPage from './pages/SettingsPage';
-import { applyAndStoreUserSettings, readSessionUserSettings, readStoredUserSettings } from '../lib/settings';
+import {
+  applyAndStoreUserSettings,
+  clearUserSettingsCache,
+  readSessionUserSettings,
+  readStoredUserSettings,
+} from '../lib/settings';
 import LegalPage, { type LegalPageKind } from './pages/LegalPage';
 import DocsPage from './pages/DocsPage';
 import ResearchPage from './pages/ResearchPage';
@@ -216,6 +221,9 @@ export default function App() {
       setAuthMode(null);
       setLegalPage(null);
       clearRememberedLogin();
+      // Preferences are cached to paint the next page instantly; leaving the
+      // cache behind would show the next sign-in this account's choices.
+      clearUserSettingsCache();
       await supabase.auth.signOut();
     } finally {
       setSigningOut(false);

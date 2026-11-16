@@ -32,17 +32,33 @@ class WorkspaceCreateIn(BaseModel):
     project_name: str | None = Field(default=None, description="Deprecated alias for strategy_name.")
     template: str = Field(default="blank", description="Starter template id. Used when code is not sent.")
     code: str | None = Field(default=None, description="Exact starter code the wizard showed. Overrides the template seed.")
+    settings: dict[str, Any] | None = Field(
+        default=None,
+        description="Lab run settings the new workspace starts with.",
+    )
 
 
 class StrategyCreateIn(BaseModel):
     name: str = Field(description="Strategy file name, without the folder.")
     template: str = Field(default="blank", description="Starter template id. Used when code is not sent.")
     code: str | None = Field(default=None, description="Exact starter code the wizard showed. Overrides the template seed.")
+    settings: dict[str, Any] | None = Field(
+        default=None,
+        description="Lab run settings a workspace created here starts with.",
+    )
 
 
 class ProjectCreateIn(BaseModel):
     name: str = Field(description="Project name.")
     template: str = Field(default="blank", description="Starter file set, same ids as above.")
+    settings: dict[str, Any] | None = Field(
+        default=None,
+        description="Lab run settings this workspace starts with; the account's defaults by default.",
+    )
+
+
+class ProjectSettingsIn(BaseModel):
+    settings: dict[str, Any] = Field(description="Dates and trading costs this workspace runs with.")
 
 
 class ProjectRenameIn(BaseModel):
@@ -107,7 +123,7 @@ async def create_workspace(
         strategy_name = (body.strategy_name or body.project_name or "main").strip()
         userdata.create_project(
             user["id"], space["id"], strategy_name, body.template, strategy_name,
-            code=body.code,
+            code=body.code, settings=body.settings,
         )
         summary = userdata.get_workspace(user["id"], space["id"])
     except userdata.LabError as err:
@@ -125,7 +141,8 @@ async def create_workspace_strategy(
 ) -> dict[str, Any]:
     try:
         return userdata.add_workspace_strategy(
-            user["id"], workspace_id, body.name, body.template, code=body.code,
+            user["id"], workspace_id, body.name, body.template,
+            code=body.code, settings=body.settings,
         )
     except userdata.LabError as err:
         raise _lab_error(err)
@@ -151,9 +168,41 @@ async def create_project(
     user: dict[str, Any] = Depends(get_current_user),
 ) -> dict[str, Any]:
     try:
-        return userdata.create_project(user["id"], workspace_id, body.name, body.template)
+        return userdata.create_project(
+            user["id"], workspace_id, body.name, body.template, settings=body.settings,
+        )
     except userdata.LabError as err:
         raise _lab_error(err)
+
+
+# -------- Per-workspace run settings --------
+# One project's dates and costs. Stored in Turso beside the files so a
+# workspace keeps its own experiment, and the account defaults stay defaults.
+@router.get("/api/lab/projects/{project_id}/settings")
+async def get_project_settings(
+    project_id: str,
+    user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+    try:
+        settings = userdata.get_project_settings(user["id"], project_id)
+    except userdata.LabError as err:
+        raise _lab_error(err)
+    if settings is None:
+        raise HTTPException(status_code=404, detail="Project not found.")
+    return {"settings": settings}
+
+
+@router.put("/api/lab/projects/{project_id}/settings")
+async def save_project_settings(
+    project_id: str,
+    body: ProjectSettingsIn,
+    user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+    try:
+        saved = userdata.save_project_settings(user["id"], project_id, body.settings)
+    except userdata.LabError as err:
+        raise _lab_error(err)
+    return {"settings": saved}
 
 
 # Frontend write: rename a project.

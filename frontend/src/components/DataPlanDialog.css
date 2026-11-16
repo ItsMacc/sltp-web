@@ -1,0 +1,142 @@
+/* DataPlanDialog.css — the market data plan confirmation. */
+
+.data-plan-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: color-mix(in srgb, var(--ink, #0b0b0c) 55%, transparent);
+  backdrop-filter: blur(2px);
+}
+
+.data-plan {
+  width: min(560px, 100%);
+  max-height: min(86vh, 720px);
+  overflow: auto;
+  background: var(--surface, #fff);
+  color: var(--ink, #0b0b0c);
+  border: 1px solid var(--line, #e3e3e6);
+  border-radius: 16px;
+  box-shadow: var(--shadow-lg, 0 24px 60px rgb(0 0 0 / 24%));
+}
+
+.data-plan-head {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 18px 18px 14px;
+  border-bottom: 1px solid var(--line, #e3e3e6);
+}
+
+.data-plan-head > div {
+  flex: 1;
+  min-width: 0;
+}
+
+.data-plan-icon {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  background: var(--accent-soft, #f1edff);
+  color: var(--accent, #6d4aff);
+}
+
+.data-plan-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 650;
+}
+
+.data-plan-sub {
+  margin: 4px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted, #55555c);
+}
+
+.data-plan-body {
+  display: grid;
+  gap: 14px;
+  padding: 16px 18px;
+}
+
+.data-plan-facts {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.data-plan-facts > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 11px;
+  border: 1px solid var(--line, #e3e3e6);
+  border-radius: 10px;
+}
+
+.data-plan-facts dt {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  color: var(--muted, #55555c);
+}
+
+.data-plan-facts dd {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.data-plan-note {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.data-plan-risk {
+  display: flex;
+  gap: 9px;
+  padding: 11px 12px;
+  border-radius: 10px;
+  background: var(--warn-soft, #fff6e8);
+  color: var(--warn-ink, #7a4b09);
+}
+
+.data-plan-risk p {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+.data-plan-error {
+  margin: 0;
+  font-size: 13px;
+  color: var(--danger, #c0352b);
+}
+
+.data-plan-progress {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.data-plan-progress-sub {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--muted, #55555c);
+}
+
+.data-plan-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 9px;
+  padding: 14px 18px 18px;
+  border-top: 1px solid var(--line, #e3e3e6);
+}

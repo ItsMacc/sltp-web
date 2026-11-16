@@ -421,6 +421,71 @@ def delete_workspace(user_id: str, workspace_id: str) -> bool:
     return True
 
 
+# -------- Per-project run settings --------
+# A workspace's backtest settings belong to the workspace: two workspaces on
+# the same account can run the same strategy at different costs. They live in
+# Turso beside the files rather than in the account row, and the table is
+# created on first use so an existing database needs no manual migration.
+_settings_table_ready = False
+
+
+def _ensure_project_settings_table() -> None:
+    global _settings_table_ready
+    if _settings_table_ready:
+        return
+    execute(
+        "CREATE TABLE IF NOT EXISTS lab_project_settings ("
+        "project_id TEXT PRIMARY KEY, settings TEXT NOT NULL, updated_at TEXT)",
+        [],
+    )
+    _settings_table_ready = True
+
+
+def get_project_settings(user_id: str, project_id: str) -> dict[str, Any] | None:
+    """The settings JSON for one project the user owns, or None."""
+    if not _project_owned(user_id, project_id):
+        return None
+    _ensure_project_settings_table()
+    row = execute_one(
+        "SELECT settings FROM lab_project_settings WHERE project_id = ?",
+        [project_id],
+    )
+    if not row:
+        return None
+    parsed = _parse_json(row.get("settings"), {})
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def save_project_settings(user_id: str, project_id: str, settings: dict[str, Any]) -> dict[str, Any]:
+    """Writes one project's settings. The account row is never touched."""
+    if not _project_owned(user_id, project_id):
+        raise LabError("Project not found.", 404)
+    _ensure_project_settings_table()
+    encoded = json.dumps(settings)
+    if len(encoded) > 4000:
+        raise LabError("Those settings are too large to save.", 400)
+    now = now_iso()
+    execute(
+        "INSERT INTO lab_project_settings (project_id, settings, updated_at) VALUES (?, ?, ?)"
+        " ON CONFLICT(project_id) DO UPDATE SET settings = excluded.settings,"
+        " updated_at = excluded.updated_at",
+        [project_id, encoded, now],
+    )
+    return settings
+
+
+def seed_project_settings(user_id: str, project_id: str, settings: dict[str, Any] | None) -> None:
+    """Copies the account's Lab defaults onto a new workspace once."""
+    if not settings:
+        return
+    try:
+        save_project_settings(user_id, project_id, settings)
+    except LabError:
+        # A workspace with no settings row still reads fine: the Lab falls
+        # back to the account defaults.
+        return
+
+
 def create_project(
     user_id: str,
     workspace_id: str,
@@ -429,6 +494,7 @@ def create_project(
     file_name: str | None = None,
     *,
     code: str | None = None,
+    settings: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     owner = execute_one(
         "SELECT id FROM lab_workspaces WHERE id = ? AND user_id = ?", [workspace_id, user_id]
@@ -469,6 +535,9 @@ def create_project(
             " VALUES (?, ?, ?, 0, ?)",
             [pid, path, content, now],
         )
+    # A new workspace starts on the account's Lab defaults; from here on its
+    # settings are its own, so changing one workspace never moves another.
+    seed_project_settings(user_id, pid, settings)
     return {"id": pid, "name": name, "created_at": now, "file_count": len(seeds)}
 
 
@@ -479,6 +548,7 @@ def add_workspace_strategy(
     template: str,
     *,
     code: str | None = None,
+    settings: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     owner = execute_one(
         "SELECT id, name FROM lab_workspaces WHERE id = ? AND user_id = ?",
@@ -496,7 +566,10 @@ def add_workspace_strategy(
         [workspace_id],
     )
     if not primary:
-        create_project(user_id, workspace_id, name, template, _strategy_slug(name), code=code)
+        create_project(
+            user_id, workspace_id, name, template, _strategy_slug(name),
+            code=code, settings=settings,
+        )
     else:
         path = _unique_strategy_path(primary["id"], name)
         save_project_file(

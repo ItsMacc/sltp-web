@@ -171,6 +171,37 @@ export async function saveUserTheme(theme: 'light' | 'dark', userId?: string | n
   }
 }
 
+/**
+ * Drops every cached preference for the account that just signed out.
+ *
+ * The settings cache is what paints a page before the network answers, so a
+ * copy left behind would greet the next person at this browser with the last
+ * one's theme, chart choices and Lab defaults. Device-level choices (the
+ * market data plan, Lab drafts on disk) are deliberately kept: they describe
+ * the machine, not the account.
+ */
+export function clearUserSettingsCache(): void {
+  try {
+    localStorage.removeItem(SETTINGS_CACHE_KEY)
+  } catch {
+    // Nothing to clear.
+  }
+  try {
+    for (const key of Object.keys(sessionStorage)) {
+      if (
+        key === 'st_user_name' ||
+        key === 'st_user_theme' ||
+        key.startsWith(SESSION_SETTINGS_BASE)
+      ) {
+        sessionStorage.removeItem(key)
+      }
+    }
+  } catch {
+    // Session storage can be unavailable; the localStorage clear is the one
+    // that matters across tabs.
+  }
+}
+
 /** Cached preferences for one account, or an empty object when there are none. */
 export function readStoredUserSettings(userId?: string): UserSettings {
   try {
