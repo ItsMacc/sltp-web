@@ -495,7 +495,10 @@ export default function SettingsPage({ userId, userEmail, initialName, onProfile
                   </span>
                   <span className="st-settings-hint">
                     Not sure it is what you want? Write to{' '}
-                    <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a> first.
+                    <a className="st-settings-link" href={`mailto:${SUPPORT_EMAIL}`}>
+                      {SUPPORT_EMAIL}
+                    </a>{' '}
+                    first.
                   </span>
                   <Button
                     variant="secondary"

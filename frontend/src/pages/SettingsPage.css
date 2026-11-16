@@ -180,6 +180,17 @@
   color: var(--warning);
 }
 
+/* An address inside a hint reads as a link, in the same accent the footer's
+   support address uses. */
+.st-settings-link {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.st-settings-link:hover {
+  text-decoration: underline;
+}
+
 .btn.st-settings-btn-danger {
   border-color: var(--error);
   color: var(--error);
