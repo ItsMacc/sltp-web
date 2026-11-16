@@ -22,6 +22,18 @@ const PYODIDE_INDEX_URL = 'https://cdn.jsdelivr.net/pyodide/v314.0.7/full/';
 const SLTP_VERSION = '0.1.39';
 /** Pure-Python date library the strategy base imports. */
 const DATEUTIL_VERSION = '2.9.0';
+/** The editor's analyser. Pure Python like the engine wheels, so it is cached
+    in OPFS too: a warm visit installs it from disk instead of PyPI. parso is
+    jedi's only dependency and installs first, so micropip never goes out for
+    it either. */
+const JEDI_VERSION = '0.20.1';
+const PARSO_VERSION = '0.8.7';
+const PYFLAKES_VERSION = '4.1.0';
+
+/** Where the resolved PyPI filename for each pinned build is remembered. */
+const RESOLVED_KEY = 'WHEELS/resolved.json';
+type ResolvedWheel = { filename: string; url: string };
+let resolvedCache: Record<string, ResolvedWheel> | null = null;
 
 interface PyodideApi {
   runPython: (code: string) => unknown;
@@ -268,17 +280,30 @@ def _payload(result, namespace):
     return {"svg": _chart_svg(result, payload), **payload}
 
 
+# What the last run wrote, so a rerun only touches the files that changed.
+_PROJECT_WRITTEN = {}
+
+
 def run_project(filename, files, settings_json="{}"):
     # Settings arrive as a JSON string so null/true mean the same thing here
     # as they do in the message from the page.
     settings = json.loads(settings_json) if settings_json else {}
-    if PROJECT_ROOT.exists():
-        shutil.rmtree(PROJECT_ROOT)
+    # Writing only the changed files is what makes a rerun cheap: the old code
+    # deleted the tree and rewrote every file, so a one-line edit paid the
+    # whole project's IO again. Files that disappeared are unlinked instead.
     PROJECT_ROOT.mkdir(parents=True, exist_ok=True)
     for name, content in files.items():
         path = PROJECT_ROOT / name
+        if _PROJECT_WRITTEN.get(name) == content and path.is_file():
+            continue
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
+        _PROJECT_WRITTEN[name] = content
+    for stale_name in [name for name in _PROJECT_WRITTEN if name not in files]:
+        stale = PROJECT_ROOT / stale_name
+        if stale.is_file():
+            stale.unlink()
+        del _PROJECT_WRITTEN[stale_name]
 
     _clear_project_modules()
     # The base path is captured on the first run, after micropip has added its
@@ -540,13 +565,21 @@ def _module_members(code, line, column):
     return items
 
 
+# What the last analysis request wrote, so an unchanged file is not rewritten
+# on every keystroke.
+_ANALYZE_WRITTEN = {}
+
+
 def analyze(method, code, path, line, column, files_json=""):
     files = json.loads(files_json) if files_json else {}
     for name, content in files.items():
+        if _ANALYZE_WRITTEN.get(name) == content:
+            continue
         target = ANALYZE_ROOT / name
         target.parent.mkdir(parents=True, exist_ok=True)
         try:
             target.write_text(content, encoding="utf-8")
+            _ANALYZE_WRITTEN[name] = content
         except OSError:
             pass
 
@@ -774,6 +807,32 @@ async function pypiWheelUrl(name: string, version: string): Promise<{ filename: 
  * OPFS trouble falls back to a plain PyPI install so a locked-down browser
  * still gets the engine.
  */
+/**
+ * The PyPI filename for each pinned build, remembered in OPFS. The answer
+ * never changes for a pin, so a warm visit asks PyPI nothing at all — the
+ * lookup used to cost one round trip per wheel on every boot.
+ */
+async function resolvedTable(): Promise<Record<string, ResolvedWheel>> {
+  if (resolvedCache) return resolvedCache;
+  try {
+    const stored = await getFile(RESOLVED_KEY);
+    resolvedCache = stored ? (JSON.parse(await stored.text()) as Record<string, ResolvedWheel>) : {};
+  } catch {
+    resolvedCache = {};
+  }
+  return resolvedCache;
+}
+
+async function rememberWheel(key: string, entry: ResolvedWheel): Promise<void> {
+  const table = await resolvedTable();
+  table[key] = entry;
+  try {
+    await putFile(RESOLVED_KEY, new Blob([JSON.stringify(table)], { type: 'application/json' }));
+  } catch {
+    /* a write that fails only costs one lookup next boot */
+  }
+}
+
 async function installWheel(
   pyodide: PyodideApi,
   micropip: { install: (requirement: string) => Promise<unknown> },
@@ -781,7 +840,10 @@ async function installWheel(
   version: string,
 ): Promise<{ cached: boolean; filename: string | null }> {
   try {
-    const { filename, url } = await pypiWheelUrl(name, version);
+    const pin = `${name}==${version}`;
+    const known = (await resolvedTable())[pin];
+    const { filename, url } = known ?? (await pypiWheelUrl(name, version));
+    if (!known) await rememberWheel(pin, { filename, url });
     const key = `WHEELS/${filename}`;
     let cached = true;
     if (!(await hasFile(key))) {
@@ -845,6 +907,8 @@ async function boot(): Promise<void> {
   let engineError: string | null = null;
   let marketReady = false;
   let marketError: string | null = null;
+  /** Wheels this boot installed, so the OPFS copy holds exactly them. */
+  const keepWheels: string[] = [];
   try {
     post({ type: 'status', text: 'Installing numpy…' });
     await instance.loadPackage(['micropip', 'numpy']);
@@ -852,10 +916,8 @@ async function boot(): Promise<void> {
     const micropip = instance.pyimport('micropip');
     const sltpWheel = await installWheel(instance, micropip, 'sltp', SLTP_VERSION);
     const dateutilWheel = await installWheel(instance, micropip, 'python-dateutil', DATEUTIL_VERSION);
-    // WHEELS/ is shared with the Research worker; keep only the builds this
-    // Lab pins so old sltp releases do not sit in the cache forever.
-    await pruneWheels(
-      [sltpWheel.filename, dateutilWheel.filename].filter((name): name is string => name !== null),
+    keepWheels.push(
+      ...[sltpWheel.filename, dateutilWheel.filename].filter((name): name is string => name !== null),
     );
     engineReady = true;
   } catch (error) {
@@ -869,10 +931,19 @@ async function boot(): Promise<void> {
     try {
       post({ type: 'status', text: 'Preparing the analyser…' });
       const analyzerPip = instance.pyimport('micropip');
-      await analyzerPip.install('jedi');
-      await analyzerPip.install('pyflakes');
-      // No stub is written any more: sltp ships a TYPE_CHECKING mirror of its
-      // lazy re-exports, which is exactly the shape jedi resolves.
+      // Same route as the engine wheels: OPFS on a hit, PyPI on a miss. Both
+      // packages are pure Python, so the cached copy is the whole install.
+      const parsoWheel = await installWheel(instance, analyzerPip, 'parso', PARSO_VERSION);
+      const jediWheel = await installWheel(instance, analyzerPip, 'jedi', JEDI_VERSION);
+      const pyflakesWheel = await installWheel(instance, analyzerPip, 'pyflakes', PYFLAKES_VERSION);
+      keepWheels.push(
+        ...[parsoWheel.filename, jediWheel.filename, pyflakesWheel.filename].filter(
+          (name): name is string => name !== null,
+        ),
+      );
+      // WHEELS/ is shared with the Research worker; keep only the builds this
+      // Lab pins so old releases do not sit in the cache forever.
+      await pruneWheels(keepWheels);
     } catch {
       /* the editor falls back to plain suggestions */
     }
