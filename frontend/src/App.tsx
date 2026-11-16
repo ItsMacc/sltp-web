@@ -239,13 +239,8 @@ export default function App() {
   // it competed with the bundle and the first API calls for the same connection,
   // which showed up as a slow page rather than as slow data.
   useEffect(() => {
-    const idle = 'requestIdleCallback' in window
-      ? window.requestIdleCallback(() => void bootMarketSync(), { timeout: 2500 })
-      : window.setTimeout(() => void bootMarketSync(), 1200);
-    return () => {
-      if ('cancelIdleCallback' in window) window.cancelIdleCallback(idle as number);
-      else window.clearTimeout(idle as number);
-    };
+    const timer = window.setTimeout(() => void bootMarketSync(), 1200);
+    return () => window.clearTimeout(timer);
   }, []);
 
   // Navigation is manual here (tabs, the docs route, anchor jumps). Leaving the
