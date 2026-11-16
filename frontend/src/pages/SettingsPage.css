@@ -241,6 +241,12 @@
   padding-top: 1.5rem;
 }
 
+/* The API tab saves on its own, so the footer is hidden there. A flex rule
+   beats the hidden attribute, which is why this has to say so explicitly. */
+.st-settings-footer[hidden] {
+  display: none;
+}
+
 .st-settings-alert {
   padding: 0.75rem 1rem;
   border-radius: var(--radius-sm);
@@ -350,6 +356,17 @@
 }
 
 /* ---------- API keys ---------- */
+
+/* One sentence of purpose under the heading, before any field. */
+.st-settings-lede {
+  margin: 0 0 var(--space-lg);
+  max-width: 54ch;
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  color: var(--text-muted);
+  text-wrap: pretty;
+}
+
 .st-settings-key-create {
   display: flex;
   gap: var(--space-sm);
@@ -358,13 +375,48 @@
 
 .st-settings-key-create .input-field {
   flex: 1;
+  min-width: 0;
 }
 
-.st-settings-new-key {
+/* The label must stay on one line: a wrapped button reads as a bug. */
+.st-settings-key-create-btn {
+  flex: none;
+  white-space: nowrap;
+}
+
+/* The reveal card is the loudest thing in the section, because the key inside
+   it exists only once. */
+.st-settings-key-reveal {
+  margin-bottom: var(--space-lg);
   padding: var(--space-md);
-  border: 1px solid var(--border-subtle);
+  border: 1px solid color-mix(in oklab, var(--accent) 35%, var(--border-subtle));
   border-radius: var(--radius-md);
-  background: var(--bg-canvas);
+  background: var(--accent-faint);
+}
+
+.st-settings-key-reveal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-sm);
+}
+
+.st-settings-key-reveal-title {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.st-settings-key-reveal-badge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--accent-muted);
+  font-size: var(--text-2xs, 0.6875rem);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--accent);
 }
 
 .st-settings-key-box {
@@ -377,13 +429,21 @@
   flex: 1;
   min-width: 0;
   padding: var(--space-sm) var(--space-md);
-  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
   background: var(--bg-surface);
   font-family: var(--font-mono);
-  font-size: var(--text-sm);
+  font-size: var(--text-xs);
+  line-height: 1.7;
   color: var(--text-primary);
   word-break: break-all;
   user-select: all;
+}
+
+.st-settings-key-warning {
+  margin: var(--space-sm) 0 0;
+  font-size: var(--text-xs);
+  color: var(--warning);
 }
 
 .st-settings-new-key-actions {
@@ -392,16 +452,128 @@
   margin-top: var(--space-sm);
 }
 
+.st-settings-key-list-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-xs);
+  margin-bottom: var(--space-sm);
+}
+
+.st-settings-key-list-head .st-settings-label {
+  margin-bottom: 0;
+}
+
+.st-settings-key-count {
+  font-size: var(--text-2xs, 0.6875rem);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+.st-settings-key-empty {
+  margin: 0;
+  padding: var(--space-md);
+  border: 1px dashed var(--border-subtle);
+  border-radius: var(--radius-md);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  text-wrap: pretty;
+}
+
+/* Rows read as one list: a bordered container, a hairline between entries. */
+.st-settings-key-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
 .st-settings-key-row {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  gap: var(--space-md);
-  padding: var(--space-sm) 0;
-  border-bottom: 1px solid var(--border-subtle);
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  background: var(--bg-surface);
+}
+
+.st-settings-key-row + .st-settings-key-row {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.st-settings-key-icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  background: var(--accent-faint);
+  color: var(--text-muted);
+}
+
+.st-settings-key-main {
+  display: grid;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
 }
 
 .st-settings-key-name {
   font-size: var(--text-sm);
+  font-weight: 550;
   color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.st-settings-key-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  font-size: var(--text-2xs, 0.6875rem);
+  color: var(--text-muted);
+}
+
+.st-settings-key-meta code {
+  font-family: var(--font-mono);
+  font-size: inherit;
+  color: var(--text-secondary);
+}
+
+.st-settings-key-revoke {
+  flex: none;
+  white-space: nowrap;
+  color: var(--text-muted);
+}
+
+.st-settings-key-revoke:hover {
+  color: var(--error);
+}
+
+@media (max-width: 480px) {
+  /* The name field keeps its width; the button takes the line below it rather
+     than squeezing the label into a second row. */
+  .st-settings-key-create {
+    flex-wrap: wrap;
+  }
+
+  .st-settings-key-create .input-field {
+    flex: 1 1 100%;
+  }
+
+  .st-settings-key-create-btn {
+    width: 100%;
+  }
+
+  .st-settings-key-box {
+    flex-wrap: wrap;
+  }
+
+  .st-settings-key-value {
+    flex: 1 1 100%;
+  }
 }

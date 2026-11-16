@@ -17,7 +17,7 @@ import { SUPPORT_EMAIL } from '../data/contact';
 import { readStorageReport, type StorageReport } from '../store/storageReport';
 import { DATA_PLAN_YEARS, IS_MOBILE, type DataPlanYears } from '../store/device';
 import DataPlanDialog from '../components/DataPlanDialog';
-import { Check, Copy } from 'lucide-react';
+import { Check, Copy, KeyRound, Trash2 } from 'lucide-react';
 import { listApiKeys, createApiKey, revokeApiKey, type ApiKeySummary } from '../../lib/api';
 import {
   readLabRunSettings,
@@ -1029,8 +1029,15 @@ export default function SettingsPage({ userId, userEmail, initialName, onProfile
                 </div>
                 <div className="st-settings-divider" />
 
+                <p className="st-settings-lede">
+                  A key lets a script call the API as you. Treat it like a password and
+                  keep it off shared machines.
+                </p>
+
                 <div className="st-settings-field">
-                  <label className="st-settings-label" htmlFor="new-api-key-name">Create a key</label>
+                  <label className="st-settings-label" htmlFor="new-api-key-name">
+                    New key
+                  </label>
                   <div className="st-settings-key-create">
                     <Input
                       id="new-api-key-name"
@@ -1038,25 +1045,31 @@ export default function SettingsPage({ userId, userEmail, initialName, onProfile
                       value={newKeyName}
                       onChange={(e) => setNewKeyName(e.target.value)}
                       onKeyDown={(e) => { if (e.key === 'Enter') handleCreateKey(); }}
-                      placeholder="For example: my laptop"
+                      placeholder="Name it after the machine that uses it"
                       maxLength={60}
                       disabled={creatingKey}
                     />
                     <Button
                       variant="primary"
                       size="md"
+                      className="st-settings-key-create-btn"
                       onClick={handleCreateKey}
                       disabled={!newKeyName.trim() || creatingKey}
                     >
-                      {creatingKey ? <LoaderInline tone="inherit" /> : 'Create key'}
+                      {creatingKey ? <LoaderInline tone="inherit" /> : 'Generate key'}
                     </Button>
                   </div>
-                  <span className="st-settings-hint">Keys give full access to your account through the API. Treat them like a password.</span>
+                  <span className="st-settings-hint">
+                    The name is only for you. It is how you tell two keys apart later.
+                  </span>
                 </div>
 
                 {createdKey && (
-                  <div className="st-settings-field st-settings-new-key">
-                    <label className="st-settings-label">Your new key</label>
+                  <div className="st-settings-key-reveal">
+                    <div className="st-settings-key-reveal-head">
+                      <span className="st-settings-key-reveal-title">Your new key</span>
+                      <span className="st-settings-key-reveal-badge">Shown once</span>
+                    </div>
                     <div className="st-settings-key-box">
                       <code className="st-settings-key-value">{createdKey}</code>
                       <Button
@@ -1069,10 +1082,12 @@ export default function SettingsPage({ userId, userEmail, initialName, onProfile
                         {keyCopied ? 'Copied' : 'Copy'}
                       </Button>
                     </div>
-                    <span className="st-settings-hint is-warning">Copy it now. You won&apos;t be able to see it again.</span>
+                    <p className="st-settings-key-warning">
+                      Copy it now. This is the only time it can be shown.
+                    </p>
                     <div className="st-settings-new-key-actions">
                       <Button
-                        variant="ghost"
+                        variant="secondary"
                         size="sm"
                         onClick={() => { setCreatedKey(null); setKeyCopied(false); }}
                         disabled={!keyCopied}
@@ -1086,31 +1101,47 @@ export default function SettingsPage({ userId, userEmail, initialName, onProfile
                 {apiKeyError && <div className="st-settings-alert st-settings-alert--error">{apiKeyError}</div>}
 
                 <div className="st-settings-field">
-                  <label className="st-settings-label">Your keys</label>
+                  <div className="st-settings-key-list-head">
+                    <label className="st-settings-label">Your keys</label>
+                    {apiKeys.length > 0 && (
+                      <span className="st-settings-key-count">{apiKeys.length}</span>
+                    )}
+                  </div>
                   {apiKeysLoading && <LoaderInline />}
                   {!apiKeysLoading && apiKeys.length === 0 && (
-                    <span className="st-settings-hint">You have no API keys yet.</span>
+                    <p className="st-settings-key-empty">No keys yet. Generate one above when a script needs it.</p>
                   )}
-                  {apiKeys.map((key) => (
-                    <div key={key.id} className="st-settings-key-row">
-                      <div>
-                        <div className="st-settings-key-name">{key.name}</div>
-                        <div className="st-settings-hint">
-                          {key.key_prefix}… · created {new Date(key.created_at).toLocaleDateString()}
-                          {' · '}
-                          {key.last_used_at ? `last used ${new Date(key.last_used_at).toLocaleDateString()}` : 'never used'}
-                        </div>
-                      </div>
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        className="st-settings-btn-danger"
-                        onClick={() => { setRevokeError(null); setKeyToRevoke(key); }}
-                      >
-                        Delete
-                      </Button>
-                    </div>
-                  ))}
+                  {apiKeys.length > 0 && (
+                    <ul className="st-settings-key-list">
+                      {apiKeys.map((key) => (
+                        <li key={key.id} className="st-settings-key-row">
+                          <span className="st-settings-key-icon" aria-hidden="true">
+                            <KeyRound size={14} strokeWidth={2} />
+                          </span>
+                          <div className="st-settings-key-main">
+                            <span className="st-settings-key-name">{key.name}</span>
+                            <span className="st-settings-key-meta">
+                              <code>{key.key_prefix}…</code>
+                              <span aria-hidden="true">·</span>
+                              {key.last_used_at
+                                ? `last used ${new Date(key.last_used_at).toLocaleDateString()}`
+                                : 'never used'}
+                            </span>
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="st-settings-key-revoke"
+                            aria-label={`Revoke ${key.name}`}
+                            onClick={() => { setRevokeError(null); setKeyToRevoke(key); }}
+                          >
+                            <Trash2 size={14} strokeWidth={2} aria-hidden="true" />
+                            Revoke
+                          </Button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
               </div>
             )}
