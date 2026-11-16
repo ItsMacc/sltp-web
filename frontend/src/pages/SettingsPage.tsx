@@ -651,7 +651,12 @@ export default function SettingsPage({ userId, userEmail, initialName, onProfile
                   <span className="st-settings-hint">
                     {marketSync.totalFiles === 0
                       ? 'Nothing has been downloaded yet. The first visit fills this in the background.'
-                      : `${marketSync.loadedFiles.length} of ${marketSync.totalFiles} history files are stored here (${marketSync.plan === 'full' ? 'full history' : 'recent years only'}). Dataset date: ${marketSync.datasetDate ?? marketSync.version ?? 'unknown'}.`}
+                      : `${marketSync.loadedFiles.length} of ${marketSync.totalFiles} history files are stored here (${marketSync.plan === 'full' ? 'full history' : 'recent years only'}), about ${Math.round(marketSync.bytesLoaded / 1_048_576)} MB. Dataset date: ${marketSync.datasetDate ?? marketSync.version ?? 'unknown'}.`}
+                  </span>
+                  <span className="st-settings-hint">
+                    That figure is what this site keeps in the browser. Your browser&apos;s own site-data
+                    setting may show a larger number for the same site while it still holds downloaded
+                    copies from earlier visits; clearing this site&apos;s data resets both.
                   </span>
                 </div>
               </div>

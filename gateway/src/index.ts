@@ -276,10 +276,10 @@ async function loadObject(
   // R2 reads as the per-file route did.
   const [mine, copy] = object.body.tee();
   try {
-    const headers = new Headers(CORS);
+    const headers = new Headers();
     headers.set('content-type', object.httpMetadata?.contentType ?? 'application/octet-stream');
     headers.set('content-length', String(object.size));
-    headers.set('cache-control', cacheControl(key, version));
+    headers.set('cache-control', edgeControl(key, version));
     void EDGE.put(cacheKey, new Response(copy, { headers })).catch(() => undefined);
   } catch {
     // A cache write that fails is not a failed download.
@@ -383,18 +383,25 @@ async function status(env: Env): Promise<Response> {
   });
 }
 
-/** Bar chunks never change under one data version; the manifest and the
-    unversioned alias do, because the next daily update replaces them. */
-function cacheControl(key: string, version: string): string {
+// Two audiences, two policies. They used to be one header, which is how a
+// browser ended up keeping a year-long copy of every bar file it downloaded.
+
+/** What the EDGE may keep. Bars never change under one data version, so its
+    copy can live for a year at zero cost; the manifest and the unversioned
+    alias move daily and get short lives. */
+function edgeControl(key: string, version: string): string {
   if (version === 'live') return 'public, max-age=60';
   if (key.endsWith('META/manifest.json')) return 'public, max-age=30';
-  // The app keeps its own copy in OPFS, so a browser copy of the same bytes is
-  // pure waste: Safari's website-data cache was holding every download under
-  // the workers.dev origin (318MB on a phone) on top of the OPFS tree. The
-  // edge cache below is manual, so telling the browser not to store these
-  // costs no gate reads. Bars and sidecars both go through here.
-  if (key.endsWith('.parquet') || key.endsWith('.bin')) return 'no-store';
-  return 'public, max-age=300';
+  return 'public, max-age=31536000, immutable';
+}
+
+/** What the BROWSER may keep. The app already holds every file it downloaded
+    in OPFS, so a second copy under the origin is pure waste: that duplicate is
+    the 1.1GB Safari reports for a phone whose OPFS copy is ~280MB. The edge
+    copy is written by hand from a separate response, so this costs no reads. */
+function clientControl(key: string): string {
+  if (key.endsWith('META/manifest.json')) return 'public, max-age=30';
+  return 'no-store';
 }
 
 export default {
@@ -459,12 +466,11 @@ export default {
         // A cache hit costs no R2 read, but it is still a Workers request.
         const gate = await tick(env);
         if (gate && !gate.allowed) return requestLimited(gate);
-        return withCors(
-          new Response(hit.body, {
-            status: hit.status,
-            headers: { ...Object.fromEntries(hit.headers), 'x-data-usage': 'cached' },
-          }),
-        );
+        // The stored headers are the edge's, not the browser's.
+        const hitHeaders = new Headers(hit.headers);
+        hitHeaders.set('cache-control', clientControl(key));
+        hitHeaders.set('x-data-usage', 'cached');
+        return withCors(new Response(hit.body, { status: hit.status, headers: hitHeaders }));
       }
     }
 
@@ -522,14 +528,22 @@ export default {
     headers.set('content-type', contentType);
     headers.set('content-length', String(size));
     headers.set('etag', etag);
-    headers.set('cache-control', cacheControl(key, version));
+    headers.set('cache-control', clientControl(key));
     headers.set('x-data-usage', String(reservation.used));
 
     const response = new Response(body, { status: 200, headers });
 
     if (request.method === 'GET') {
       try {
-        await EDGE.put(cacheKey, response.clone());
+        // Stored under the edge's own headers: a copy that kept `no-store`
+        // would never be written, and every request would pay an R2 read.
+        const copy = response.clone();
+        const stored = new Headers();
+        stored.set('content-type', contentType);
+        stored.set('content-length', String(size));
+        stored.set('etag', etag);
+        stored.set('cache-control', edgeControl(key, version));
+        await EDGE.put(cacheKey, new Response(copy.body, { status: 200, headers: stored }));
       } catch {
         // A body too large or a cache hiccup is not a failed download.
       }
