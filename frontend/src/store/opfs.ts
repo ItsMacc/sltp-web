@@ -9,8 +9,13 @@
 /** Top-level OPFS directory holding every cached file. */
 const DIR_NAME = 'sltp-market';
 
-/** Records which dataset version the cached files were downloaded against. */
-const VERSION_NAME = '__version.txt';
+/**
+ * Records which dataset version the cached files were downloaded against.
+ * The name is sltp's own marker (`cached_version()` reads
+ * `~/.sltp/cache/version.txt`), so the engine and this sync agree on whether
+ * the cache is current instead of each keeping its own idea of fresh.
+ */
+const VERSION_NAME = 'version.txt';
 
 /**
  * Browsers without OPFS (older Android WebViews, some in-app browsers) still

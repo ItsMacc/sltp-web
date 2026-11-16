@@ -31,9 +31,6 @@ const OFFERINGS: { title: string; text: string }[] = [
   },
 ];
 
-function formatMB(bytes: number): string {
-  return `${(bytes / (1024 * 1024)).toFixed(0)} MB`;
-}
 
 /** What the background download has staged so far, in plain words. */
 function SyncStatusBlock() {
@@ -70,12 +67,12 @@ function SyncStatusBlock() {
       <h2 className="watch-offer-title">Market data</h2>
       <p className="watch-offer-text">
         {busy
-          ? `Downloading market history into this browser… ${formatMB(sync.bytesLoaded)} of ${formatMB(sync.bytesTotal)} (${pct}%). Charts already work — older years fill in behind them.`
+          ? 'Downloading market history into this browser… Charts already work — older years fill in behind them.'
           : sync.olderDeferred
-            ? `Recent history is cached in this browser (${sync.loadedFiles.length} of ${sync.totalFiles} files). The rest waits for an unmetered connection.`
+            ? 'Recent history is cached in this browser. The rest waits for an unmetered connection.'
             : sync.plan === 'full'
-              ? `Full history is cached in this browser (${sync.loadedFiles.length} of ${sync.totalFiles} files, dataset ${sync.version}). Charts open instantly.`
-              : `Recent history is cached in this browser (${sync.loadedFiles.length} of ${sync.totalFiles} files, dataset ${sync.version}). Charts open instantly.`}
+              ? 'Full history is cached in this browser. Charts open instantly.'
+              : 'Recent history is cached in this browser. Charts open instantly.'}
       </p>
       {busy && (
         <div className="watch-sync-bar" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>

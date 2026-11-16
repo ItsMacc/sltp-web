@@ -19,6 +19,9 @@ DEFAULT_SETTINGS: dict[str, object] = {
     # Bars the price chart may draw at once; "all" removes the ceiling. Kept as
     # a string so the row reads the same however it was written.
     "chartMaxBars": "1500",
+    # How often this browser checks for fresh market data: daily, weekly or
+    # monthly. Weekly keeps the market-read allowance shared across everyone.
+    "updateHorizon": "weekly",
     "securityWarnings": True,
     "autoTrackSignals": False,
     "editorFontSize": 14,

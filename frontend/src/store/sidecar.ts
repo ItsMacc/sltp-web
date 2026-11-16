@@ -28,7 +28,9 @@ const safe = (value: string): string => value.replace(/[^A-Za-z0-9]/g, '_');
 const keyFor = (version: string, chunkKey: string, symbol: string): string =>
   `BARS/${safe(version)}/${safe(chunkKey)}/${safe(symbol)}.bin`;
 
-const VERSION_MARKER = 'BARS/__version.txt';
+// One marker name across every cache: `version.txt`, the same file name the
+// dataset sync and sltp itself write, so no store keeps a private spelling.
+const VERSION_MARKER = 'BARS/version.txt';
 
 let checkedVersion: string | null = null;
 

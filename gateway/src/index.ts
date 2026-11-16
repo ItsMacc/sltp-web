@@ -23,7 +23,7 @@
 // bucket's public URL.
 
 import { Budget } from './budget.ts';
-import { pauseMessage } from './policy.ts';
+import { pauseMessage, requestPauseMessage } from './policy.ts';
 
 export { Budget };
 
@@ -81,10 +81,23 @@ const EDGE = (caches as unknown as { default: Cache }).default;
 
 const CORS: Record<string, string> = {
   'access-control-allow-origin': '*',
-  'access-control-allow-methods': 'GET, HEAD, OPTIONS',
-  'access-control-allow-headers': 'if-none-match',
+  'access-control-allow-methods': 'GET, HEAD, POST, OPTIONS',
+  'access-control-allow-headers': 'if-none-match, content-type',
   'access-control-expose-headers': 'etag, x-data-usage',
 };
+
+/** One bundle carries the whole plan, but a single response that must survive
+    for a gigabyte is a gamble; the browser splits anything larger. */
+const BULK_MAX_FILES = 64;
+const BULK_MAX_BYTES = 1_200_000_000;
+const BULK_MAGIC = 'SLTPBULK';
+
+/** One object resolved for a bulk response: from the edge cache or from R2. */
+interface BulkSource {
+  key: string;
+  size: number;
+  body: ReadableStream<Uint8Array>;
+}
 
 function json(value: unknown, status = 200, extra: Record<string, string> = {}): Response {
   return new Response(JSON.stringify(value), {
@@ -108,10 +121,10 @@ function budget(env: Env): BudgetStub {
   return env.BUDGET.get(env.BUDGET.idFromName(BUDGET_ID));
 }
 
-async function reserve(env: Env, isNewDevice: boolean): Promise<Reservation> {
+async function reserve(env: Env, isNewDevice: boolean, device: string): Promise<Reservation> {
   const res = await budget(env).fetch('https://budget/reserve', {
     method: 'POST',
-    body: JSON.stringify({ new: isNewDevice }),
+    body: JSON.stringify({ new: isNewDevice, d: device }),
   });
   if (!res.ok) throw new Error(`budget unavailable (${res.status})`);
   return (await res.json()) as Reservation;
@@ -173,8 +186,8 @@ function requestLimited(gate: Gate): Response {
     {
       paused: true,
       reason: 'requests',
-      message:
-        'Too many market-data requests today. Downloads resume after midnight UTC; anything already saved keeps working.',
+      // The same words the toast uses, so "busy day" searches the FAQ finds it.
+      message: requestPauseMessage(gate.resetsAt),
       requests: gate.requests,
       limit: gate.limit,
       resetsAt: gate.resetsAt,
@@ -213,6 +226,155 @@ function paused(reservation: Reservation): Response {
   );
 }
 
+/**
+ * Resolves one object for a bulk bundle, going through the same gate a
+ * single-file request does: edge cache first (no R2 read), then a reserved R2
+ * read that also warms the edge for the next device.
+ *
+ * The request counter is NOT ticked here — a bulk call is one inbound request,
+ * which is the whole point of the route — so the caller ticks once.
+ */
+async function loadObject(
+  env: Env,
+  version: string,
+  key: string,
+  isNewDevice: boolean,
+  device: string,
+): Promise<{ source?: BulkSource; refusal?: Response }> {
+  const cacheKey = new Request(`https://bucket.local/v/${version}/${encodeURIComponent(key)}`, {
+    method: 'GET',
+  });
+  const hit = await EDGE.match(cacheKey);
+  if (hit?.body) {
+    return {
+      source: { key, size: Number(hit.headers.get('content-length') ?? 0), body: hit.body },
+    };
+  }
+
+  const reservation = await reserve(env, isNewDevice, device);
+  if (!reservation.allowed) {
+    return {
+      refusal:
+        reservation.reason === 'requests'
+          ? requestLimited({
+              allowed: false,
+              requests: reservation.requests,
+              limit: reservation.limit,
+              resetsAt: reservation.resetsAt,
+            })
+          : paused(reservation),
+    };
+  }
+
+  const object = await env.BUCKET.get(key);
+  if (!object?.body) {
+    await release(env);
+    return { refusal: json({ error: 'not found', key }, 404) };
+  }
+
+  // One copy to the visitor, one to the edge cache, so a bundle costs the same
+  // R2 reads as the per-file route did.
+  const [mine, copy] = object.body.tee();
+  try {
+    const headers = new Headers(CORS);
+    headers.set('content-type', object.httpMetadata?.contentType ?? 'application/octet-stream');
+    headers.set('content-length', String(object.size));
+    headers.set('cache-control', cacheControl(key, version));
+    void EDGE.put(cacheKey, new Response(copy, { headers })).catch(() => undefined);
+  } catch {
+    // A cache write that fails is not a failed download.
+  }
+  return { source: { key, size: object.size, body: mine } };
+}
+
+/**
+ * POST /bulk {version, keys} — several objects in one Worker request.
+ *
+ * Framing: "SLTPBULK" (8 bytes) | u32 header length | JSON header naming each
+ * file's key and byte count | the files' bytes back to back in header order.
+ * The browser writes each file as it arrives, so nothing is buffered here or
+ * there. A refusal on any key returns its JSON before a byte of the bundle, so
+ * a half-written body is never mistaken for data.
+ */
+async function bulk(request: Request, env: Env): Promise<Response> {
+  let body: { version?: unknown; keys?: unknown };
+  try {
+    body = (await request.json()) as typeof body;
+  } catch {
+    return json({ error: 'expected a JSON body' }, 400);
+  }
+
+  const version = typeof body.version === 'string' ? body.version : 'live';
+  if (!VERSION.test(version)) return json({ error: 'unknown data version' }, 404);
+  const keys = Array.isArray(body.keys) ? body.keys.filter((k): k is string => typeof k === 'string') : [];
+  if (keys.length === 0 || keys.length > BULK_MAX_FILES) {
+    return json({ error: `send between 1 and ${BULK_MAX_FILES} keys` }, 400);
+  }
+  for (const key of keys) {
+    if (!SAFE_KEY.test(key) || key.includes('..')) return json({ error: 'bad key', key }, 400);
+  }
+
+  const url = new URL(request.url);
+  const isNewDevice = url.searchParams.get('new') === '1';
+  const device = url.searchParams.get('d') ?? '';
+
+  // One request, one tick — thirty files used to be thirty.
+  const gate = await tick(env);
+  if (gate && !gate.allowed) return requestLimited(gate);
+
+  if (version !== 'live') {
+    const current = await currentVersion(env);
+    if (current !== null && version !== current) {
+      return json({ error: 'unknown data version' }, 404);
+    }
+  }
+
+  const sources: BulkSource[] = [];
+  for (const key of keys) {
+    const loaded = await loadObject(env, version, key, isNewDevice, device);
+    if (loaded.refusal) return loaded.refusal;
+    sources.push(loaded.source!);
+  }
+
+  const total = sources.reduce((sum, source) => sum + source.size, 0);
+  if (total > BULK_MAX_BYTES) {
+    return json({ error: `bundle over ${BULK_MAX_BYTES} bytes; send fewer keys` }, 413);
+  }
+
+  const header = new TextEncoder().encode(
+    JSON.stringify({ files: sources.map((s) => ({ key: s.key, bytes: s.size })) }),
+  );
+  const preamble = new Uint8Array(12 + header.length);
+  preamble.set(new TextEncoder().encode(BULK_MAGIC), 0);
+  new DataView(preamble.buffer).setUint32(8, header.length, true);
+  preamble.set(header, 12);
+
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      controller.enqueue(preamble);
+      for (const source of sources) {
+        const reader = source.body.getReader();
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          controller.enqueue(value);
+        }
+      }
+      controller.close();
+    },
+  });
+
+  return new Response(stream, {
+    status: 200,
+    headers: {
+      ...CORS,
+      'content-type': 'application/x-sltp-bulk',
+      // A bundle is assembled per call; never stored by anything.
+      'cache-control': 'no-store',
+    },
+  });
+}
+
 async function status(env: Env): Promise<Response> {
   const res = await budget(env).fetch('https://budget/status');
   return new Response(res.body, {
@@ -226,11 +388,12 @@ async function status(env: Env): Promise<Response> {
 function cacheControl(key: string, version: string): string {
   if (version === 'live') return 'public, max-age=60';
   if (key.endsWith('META/manifest.json')) return 'public, max-age=30';
-  // The app keeps its own copy in OPFS and asks for `no-store`; Safari's
-  // website-data cache was still holding every parquet download under the
-  // workers.dev origin (318MB on a phone). The edge cache below is manual,
-  // so telling the browser not to store these costs no gate reads.
-  if (key.endsWith('.parquet')) return 'no-store';
+  // The app keeps its own copy in OPFS, so a browser copy of the same bytes is
+  // pure waste: Safari's website-data cache was holding every download under
+  // the workers.dev origin (318MB on a phone) on top of the OPFS tree. The
+  // edge cache below is manual, so telling the browser not to store these
+  // costs no gate reads. Bars and sidecars both go through here.
+  if (key.endsWith('.parquet') || key.endsWith('.bin')) return 'no-store';
   return 'public, max-age=300';
 }
 
@@ -239,6 +402,12 @@ export default {
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
 
     const url = new URL(request.url);
+    if (url.pathname === '/bulk') {
+      if (request.method !== 'POST') {
+        return json({ error: 'method not allowed' }, 405, { allow: 'POST' });
+      }
+      return bulk(request, env);
+    }
     if (url.pathname === '/__gate/status') {
       try {
         return await status(env);
@@ -301,7 +470,11 @@ export default {
 
     let reservation: Reservation;
     try {
-      reservation = await reserve(env, url.searchParams.get('new') === '1');
+      reservation = await reserve(
+        env,
+        url.searchParams.get('new') === '1',
+        url.searchParams.get('d') ?? '',
+      );
     } catch {
       return json({ paused: true, reason: 'unavailable', message: 'Market data is briefly unavailable.' }, 503);
     }

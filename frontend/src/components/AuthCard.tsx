@@ -1,10 +1,11 @@
 // AuthCard.tsx — Sign in / sign up card
 import { useState } from 'react';
-import { supabase } from '../../lib/supabase';
+import { supabase, setRememberMe } from '../../lib/supabase';
 import { loginSchema, signUpSchema } from '../../lib/authSchema';
 import { seedNewAccount } from '../../lib/learnApi';
 import { provisionAccount, recordLoginEvent } from '../../lib/api';
 import Button from '../ui/Button';
+import Checkbox from '../ui/Checkbox';
 import Input from '../ui/Input';
 import { LoaderInline, LoaderOverlay } from '../ui/Loader';
 import './AuthCard.css';
@@ -29,6 +30,9 @@ export function AuthCard({ initialMode = 'login', onSuccess }: AuthCardProps) {
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  // Default on: a site people come back to daily should not ask again. Turning
+  // it off limits the session to one day (see UNREMEMBERED_SESSION_DAYS).
+  const [remember, setRemember] = useState(true);
 
   // Flatten Zod issues into { fieldName: message } so errors can render under each input.
   function toFieldErrors(result: {
@@ -69,6 +73,10 @@ export function AuthCard({ initialMode = 'login', onSuccess }: AuthCardProps) {
     setLoading(true);
 
     try {
+      // The choice is written before the call, because the client stores the
+      // session it receives using this flag.
+      setRememberMe(remember);
+
       if (isLogin) {
         const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
           email,
@@ -114,6 +122,10 @@ export function AuthCard({ initialMode = 'login', onSuccess }: AuthCardProps) {
             data: {
               full_name: fullNameInput.trim(),
             },
+            // Where the confirmation link lands. Supabase only honours this if
+            // the origin is on the project's redirect allow-list (Site URL plus
+            // https://sltp-app.com/**), otherwise it falls back to the Site URL.
+            emailRedirectTo: `${window.location.origin}/`,
           },
         });
 
@@ -254,6 +266,14 @@ export function AuthCard({ initialMode = 'login', onSuccess }: AuthCardProps) {
               {errors.confirmPassword && <span className="st-auth__error">{errors.confirmPassword}</span>}
             </div>
           )}
+
+          <Checkbox
+            id="rememberMe"
+            label="Keep me signed in"
+            description="Stay signed in on this device until you sign out. Turn it off and the session ends after a day."
+            checked={remember}
+            onChange={(event) => setRemember(event.target.checked)}
+          />
 
           <div className="st-auth__submit-container">
             <Button type="submit" variant="primary" size="md" disabled={loading}>

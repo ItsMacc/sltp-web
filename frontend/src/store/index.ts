@@ -17,7 +17,7 @@ export {
   getManifest,
   getActivePlan,
 } from './sync';
-export type { SyncPhase, SyncPlan, SyncStatus } from './sync';
+export type { SyncPause, SyncPhase, SyncPlan, SyncStatus } from './sync';
 export {
   queryMarketData,
   queryMarketDataProgressively,

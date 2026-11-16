@@ -36,6 +36,33 @@ export function readStrategyChartStyle(settings?: UserSettings | null): Strategy
   return settings?.strategyChartStyle === 'line' ? 'line' : DEFAULT_STRATEGY_CHART_STYLE
 }
 
+/**
+ * How stale the browser's copy of market data may get before the next boot
+ * asks for a fresh manifest. The dataset is the same OHLCV history everyone
+ * reads; this only decides when THIS device checks whether the publisher has
+ * added sessions, not whether the user's own data is uploaded anywhere.
+ */
+export type UpdateHorizon = 'daily' | 'weekly' | 'monthly'
+
+/** New accounts, and any account that has not chosen yet. */
+export const DEFAULT_UPDATE_HORIZON: UpdateHorizon = 'weekly'
+
+const UPDATE_HORIZON_VALUES: UpdateHorizon[] = ['daily', 'weekly', 'monthly']
+
+/** Days a cached dataset may age before the next check. */
+export function updateHorizonDays(horizon: UpdateHorizon): number {
+  return horizon === 'daily' ? 1 : horizon === 'monthly' ? 30 : 7
+}
+
+/** Read the stored choice, tolerating a missing key or junk. */
+export function readUpdateHorizon(settings?: UserSettings | null): UpdateHorizon {
+  const raw = settings?.updateHorizon
+  const text = typeof raw === 'string' ? raw.trim().toLowerCase() : ''
+  return (UPDATE_HORIZON_VALUES as string[]).includes(text)
+    ? (text as UpdateHorizon)
+    : DEFAULT_UPDATE_HORIZON
+}
+
 /** Past this the chart spends more time drawing candles than the pointer does moving. */
 export const CHART_MAX_BARS_WARNING_ABOVE = 1500
 

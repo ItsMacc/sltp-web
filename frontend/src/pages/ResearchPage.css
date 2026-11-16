@@ -265,9 +265,17 @@
   font-size: 1.0625rem; /* 15px */
   text-align: left;
   cursor: pointer;
+  /* The label is one line, and a narrow phone must not break it mid-phrase:
+     it shrinks to fit and the ellipsis takes over only if the icon and
+     padding leave less room than the words need. */
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .ticker-trigger svg {
+  flex: 0 0 auto;
   color: var(--accent);
 }
 
@@ -805,7 +813,10 @@
      bar, so a phone opens on the graph rather than a wall of tickers. */
   .ticker-trigger {
     display: flex;
-    font-size: 1.125rem;
+    /* Phones keep the 1.125rem size but the call to action is short enough to
+       fit: "Search ticker or company" at 18px is wider than a 320px screen. */
+    font-size: 1rem;
+    padding: 0 var(--space-sm) 0 var(--space-md);
   }
 
   /* The root type scale shrinks below 30rem; these two carry the search, so

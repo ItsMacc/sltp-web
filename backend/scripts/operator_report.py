@@ -29,7 +29,13 @@ import requests
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from app.config import SUPABASE_URL, SUPABASE_SERVICE_KEY, SUPABASE_TIMEOUT, service_headers
+from app.config import (
+    GATEWAY_URL,
+    SUPABASE_URL,
+    SUPABASE_SERVICE_KEY,
+    SUPABASE_TIMEOUT,
+    service_headers,
+)
 from app.health import collect_health
 from app.notify.mailer import admin_recipient, ops_report_email
 from app.turso import userdata
@@ -149,9 +155,39 @@ def usage_summary() -> dict[str, Any]:
     return usage
 
 
+# -------- Market gate --------
+# How many downloads the month refused, and who they were. The gate is the only
+# place these exist: the browser never reports back, so the counter it keeps is
+# the whole record. Missing or unreachable gate reads as None ("unknown"), never
+# as zero, so a quiet line cannot be mistaken for a quiet month.
+def fetch_gate_status() -> dict[str, Any] | None:
+    try:
+        response = requests.get(f"{GATEWAY_URL}/__gate/status", timeout=SUPABASE_TIMEOUT)
+        response.raise_for_status()
+        body = response.json()
+        return body if isinstance(body, dict) else None
+    except (requests.RequestException, ValueError):
+        return None
+
+
+# The refused counts, named the way the operator thinks about them.
+def refused_summary(gate: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not gate:
+        return None
+    refused = gate.get("refused") or {}
+    return {
+        "fresh_new": refused.get("freshNew"),
+        "cache_cleared": refused.get("cacheCleared"),
+        "returning": refused.get("returning"),
+        "requests": refused.get("requests"),
+        "total": sum(v for v in refused.values() if isinstance(v, int)),
+    }
+
+
 def build_report() -> dict[str, Any]:
     now = datetime.now(timezone.utc)
     accounts = fetch_auth_accounts()
+    gate = fetch_gate_status()
     return {
         "date": now.date().isoformat(),
         "accounts": summarize_accounts(accounts, now),
@@ -159,6 +195,8 @@ def build_report() -> dict[str, Any]:
         "deletions": deletion_summary(now),
         "followed_strategies": followed_strategies(),
         "health": collect_health(),
+        "gate": gate,
+        "refused": refused_summary(gate),
     }
 
 
@@ -192,6 +230,33 @@ def format_text(report: dict[str, Any]) -> str:
         f"  deleted in 30d:   {val(deletions.get('recent_30d'))}",
         f"  total deleted:    {val(deletions.get('total'))}",
     ]
+
+    # The gate is not a table, so a missing count means "the Worker has not been
+    # redeployed yet" or "it could not be reached", never a schema problem.
+    def gval(v: Any) -> str:
+        return "unknown" if v is None else str(v)
+
+    gate = report.get("gate")
+    refused = report.get("refused")
+    lines += ["", "Failed to serve (this billing month)"]
+    if not refused:
+        lines.append("  gate unreachable — no count available")
+    else:
+        lines += [
+            f"  new users (no cache):    {gval(refused.get('fresh_new'))}",
+            f"  cache cleared:           {gval(refused.get('cache_cleared'))}",
+            f"  returning (has files):   {gval(refused.get('returning'))}",
+            f"  daily request line:      {gval(refused.get('requests'))}",
+            f"  total refused:           {gval(refused.get('total'))}",
+        ]
+        if isinstance(gate, dict):
+            lines += [
+                "",
+                "Gate counters",
+                f"  reads used:      {gval(gate.get('used'))} of {gval(gate.get('hardLimit'))}",
+                f"  requests today:  {gval(gate.get('requests'))} of {gval(gate.get('requestLimit'))}",
+                f"  window:          {gval(gate.get('window'))} (resets {gval(gate.get('resetsAt'))})",
+            ]
     followed = report.get("followed_strategies") or []
     if followed:
         lines += ["", "Followed strategies"]

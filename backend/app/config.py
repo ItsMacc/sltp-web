@@ -34,6 +34,12 @@ TURSO_URL: str = os.environ.get("TURSO_DATABASE_URL", "")
 TURSO_TOKEN: str | None = os.environ.get("TURSO_AUTH_TOKEN")
 TURSO_TIMEOUT: int = 15
 
+# The gate Worker in gateway/. Its /__gate/status endpoint is the only place the
+# market-read counters exist, so the operator brief reads them from there.
+GATEWAY_URL: str = os.environ.get(
+    "SLTP_GATEWAY_URL", "https://sltp-data.magicaltitan7.workers.dev"
+).rstrip("/")
+
 
 # -------- Supabase REST --------
 # Service-role headers. The backend is a trusted client: it bypasses RLS and

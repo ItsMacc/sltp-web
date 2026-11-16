@@ -125,6 +125,15 @@ function startRunJob(strategyId: string, start: string, end: string): void {
 // before that day; the field, the submit and the note below all agree.
 const MOBILE = IS_MOBILE
 
+/** Two years back is the window every cache holds, so a first visit opens
+    with a runnable date instead of an empty field. */
+const defaultStartDate = (): string => {
+  const start = new Date()
+  start.setFullYear(start.getFullYear() - 2)
+  const iso = start.toISOString().slice(0, 10)
+  return MOBILE && iso < MOBILE_HISTORY_START ? MOBILE_HISTORY_START : iso
+}
+
 const formatNumber = (val: number) =>
   val.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
@@ -227,7 +236,7 @@ export default function StrategyChart({
   const runError = job.error
 
   const [selectedStrategy, setSelectedStrategy] = useState<string>(runJob.strategyId)
-  const [startDate, setStartDate] = useState<string>(runJob.startDate)
+  const [startDate, setStartDate] = useState<string>(runJob.startDate || defaultStartDate())
   const [endDate, setEndDate] = useState<string>(runJob.endDate)
   const [inputError, setInputError] = useState<string | null>(null)
 

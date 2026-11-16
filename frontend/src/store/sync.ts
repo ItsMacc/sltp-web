@@ -38,12 +38,19 @@ import {
   hasFile,
   listFiles,
   opfsSupported,
+  putFile,
   putFileInMemory,
   putFileStream,
   readVersion,
   requestPersistentStorage,
   writeVersion,
 } from './opfs';
+import {
+  readStoredUserSettings,
+  readUpdateHorizon,
+  updateHorizonDays,
+  type UpdateHorizon,
+} from '../../lib/settings';
 
 export type SyncPhase =
   | 'idle'
@@ -61,6 +68,8 @@ export interface SyncStatus {
   phase: SyncPhase;
   /** Published dataset version (null until the first manifest lands). */
   version: string | null;
+  /** The publisher's "last written" date, when the manifest carries one. */
+  datasetDate: string | null;
   /** Which plan is running: full history, or the phone-sized recent pair. */
   plan: SyncPlan;
   /** Chunk keys on disk, newest first — always a subset of the plan. */
@@ -72,11 +81,19 @@ export interface SyncStatus {
   /** Metered link: priority fetched, older years wait for prefetchOlder(). */
   olderDeferred: boolean;
   error: string | null;
+  /** Set when the gate refused a download: the month's allowance is spent. */
+  paused: SyncPause | null;
+}
+
+/** What the gate said when it closed, in the words the toast and the FAQ share. */
+export interface SyncPause {
+  message: string;
 }
 
 const INITIAL: SyncStatus = {
   phase: 'idle',
   version: null,
+  datasetDate: null,
   plan: 'full',
   loadedFiles: [],
   totalFiles: 0,
@@ -84,6 +101,7 @@ const INITIAL: SyncStatus = {
   bytesTotal: 0,
   olderDeferred: false,
   error: null,
+  paused: null,
 };
 
 let status: SyncStatus = { ...INITIAL };
@@ -132,12 +150,42 @@ export interface ManifestFile {
 
 export interface Manifest {
   version: string;
+  /** When the publisher last wrote the dataset, e.g. "2026-11-13". Older
+      manifests only carry `version`, which is itself a date. */
+  updated?: string;
   files: ManifestFile[];
+}
+
+/** This device's random id, so the gate can tell a returning downloader from
+    one that just emptied its cache. It lives in localStorage, next to the
+    session, not in the OPFS tree a cache clear removes. */
+const DEVICE_KEY = 'st_device_id';
+
+function deviceId(): string {
+  try {
+    const existing = localStorage.getItem(DEVICE_KEY);
+    if (existing) return existing;
+    const created = Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+    localStorage.setItem(DEVICE_KEY, created);
+    return created;
+  } catch {
+    return '';
+  }
+}
+
+/** Query string for a gate call: the first-sync flag plus this device's id. */
+function gateQuery(first: boolean): string {
+  const params = new URLSearchParams();
+  if (first) params.set('new', '1');
+  const id = deviceId();
+  if (id) params.set('d', id);
+  const query = params.toString();
+  return query ? `?${query}` : '';
 }
 
 /** The published dataset version, e.g. "2026-11-11". A few bytes. */
 export async function fetchManifest(): Promise<Manifest> {
-  const res = await fetch(`${GATEWAY_BASE_URL}/manifest.json${firstSync ? '?new=1' : ''}`, {
+  const res = await fetch(`${GATEWAY_BASE_URL}/manifest.json${gateQuery(firstSync)}`, {
     cache: 'no-store',
   });
   if (!res.ok) throw new Error(`Manifest fetch failed (${res.status})`);
@@ -146,6 +194,61 @@ export async function fetchManifest(): Promise<Manifest> {
     throw new Error('Manifest had an unexpected shape');
   }
   return manifest;
+}
+
+/** This device's copy of the manifest, so a boot inside the update horizon can
+    decide from disk without asking the gate anything. */
+const LOCAL_MANIFEST = 'manifest.json';
+let localManifest: Manifest | null = null;
+
+/** The manifest this browser last synced, or null on a device with no cache. */
+export async function readLocalManifest(): Promise<Manifest | null> {
+  if (localManifest) return localManifest;
+  try {
+    const file = await getFile(LOCAL_MANIFEST);
+    if (!file) return null;
+    const parsed = JSON.parse(await file.text()) as Manifest;
+    if (!parsed?.version || !Array.isArray(parsed.files)) return null;
+    localManifest = parsed;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+async function writeLocalManifest(manifest: Manifest): Promise<void> {
+  localManifest = manifest;
+  try {
+    await putFile(
+      LOCAL_MANIFEST,
+      new Blob([JSON.stringify(manifest)], { type: 'application/json' }),
+    );
+  } catch {
+    // A cache that cannot hold the manifest still works; the next boot just
+    // checks the gate again instead of deciding from disk.
+  }
+}
+
+/** The date the publisher stamped on a dataset, for the horizon comparison. */
+export function manifestUpdated(manifest: Manifest): string | null {
+  const stamp = manifest.updated ?? manifest.version;
+  return /^\d{4}-\d{2}-\d{2}$/.test(stamp) ? stamp : null;
+}
+
+/** Days between the publisher's stamp and today, or null when unreadable. */
+export function manifestAgeDays(manifest: Manifest, today = new Date()): number | null {
+  const stamp = manifestUpdated(manifest);
+  if (!stamp) return null;
+  const then = Date.parse(`${stamp}T00:00:00Z`);
+  if (Number.isNaN(then)) return null;
+  const start = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate());
+  return Math.max(0, Math.floor((start - then) / 86_400_000));
+}
+
+/** True when the local copy is old enough that the next boot should check. */
+export function horizonDue(manifest: Manifest, horizon: UpdateHorizon, today = new Date()): boolean {
+  const age = manifestAgeDays(manifest, today);
+  return age === null || age >= updateHorizonDays(horizon);
 }
 
 /**
@@ -157,7 +260,7 @@ export async function fetchManifest(): Promise<Manifest> {
 export async function resolveFileUrl(key: string): Promise<string> {
   const version = manifestCache?.version;
   const base = version ? `${GATEWAY_BASE_URL}/v/${version}` : GATEWAY_BASE_URL;
-  return `${base}/${key}${firstSync ? '?new=1' : ''}`;
+  return `${base}/${key}${gateQuery(firstSync)}`;
 }
 
 /**
@@ -313,22 +416,75 @@ export function getManifest(): Manifest | null {
  * the ticker catalog is 0.4MB, and waiting for the 30MB priority pair before
  * showing suggestions is what made the first search feel frozen.
  */
+/**
+ * Re-reads the manifest after the gate refused a versioned path. The gate only
+ * serves `/v/<version>/` for the version the bucket publishes today, so a tab
+ * that booted moments before a daily update holds a manifest whose URLs now
+ * 404. Dropping the local copy forces a real fetch; one refresh is enough,
+ * because the retry uses the new version's URL.
+ */
+export async function refreshManifest(): Promise<Manifest> {
+  manifestCache = null;
+  manifestPromise = null;
+  localManifest = null;
+  await deleteFile(LOCAL_MANIFEST);
+  return ensureManifest();
+}
+
+/** The update horizon, read once per call: a setting changed in another tab
+    applies on the next boot, not mid-download. */
+function currentUpdateHorizon(): UpdateHorizon {
+  return readUpdateHorizon(readStoredUserSettings());
+}
+
+/**
+ * The manifest this boot will work from.
+ *
+ * Inside the update horizon the device answers from its own copy and sends the
+ * gate nothing, which is what keeps the monthly read allowance quiet. Past it
+ * the manifest is fetched again; if the version moved, only the files whose
+ * byte count changed are downloaded (a daily publish rewrites the recent tail
+ * and sometimes the actions sidecar).
+ */
 export async function ensureManifest(): Promise<Manifest> {
   if (manifestCache) return manifestCache;
   if (!manifestPromise) {
     manifestPromise = (async () => {
       const stored = await readVersion();
-      firstSync = stored === null;
-      const manifest = await fetchManifest();
+      const local = await readLocalManifest();
+      // A device with a marker or a local manifest has downloaded before, so
+      // its reads no longer come out of the reserve above the 9M line.
+      firstSync = stored === null && local === null;
+      const horizon = currentUpdateHorizon();
+      const fresh = local !== null && stored === local.version && !horizonDue(local, horizon);
+      const manifest = fresh ? local : await fetchManifest();
+      if (!fresh) await writeLocalManifest(manifest);
       manifestCache = manifest;
       activePlan = planKeys(manifest.files);
-      setStatus({ version: manifest.version, totalFiles: activePlan.length });
+      setStatus({
+        version: manifest.version,
+        datasetDate: manifestUpdated(manifest),
+        totalFiles: activePlan.length,
+      });
       return manifest;
     })().finally(() => {
       manifestPromise = null;
     });
   }
   return manifestPromise;
+}
+
+/** Reads the gate's refusal body once, so the caller can show its words. */
+async function readPause(res: Response): Promise<SyncPause | null> {
+  try {
+    const body = (await res.clone().json()) as { paused?: boolean; message?: string };
+    if (!body?.paused) return null;
+    return {
+      message: body.message || 'Market data is briefly unavailable. Please try again later.',
+    };
+  } catch {
+    return null;
+  }
 }
 
 /** The files a chart needs first: the tail plus the current year file.
@@ -390,7 +546,7 @@ async function downloadFile(file: ManifestFile, track = true): Promise<void> {
  * about history.
  */
 async function storeFile(file: ManifestFile, track = true): Promise<void> {
-  const url = await resolveFileUrl(file.key);
+  let url = await resolveFileUrl(file.key);
   let received = 0;
   const count = (bytes: number): void => {
     received += bytes;
@@ -398,7 +554,26 @@ async function storeFile(file: ManifestFile, track = true): Promise<void> {
   };
 
   try {
-    const res = await fetch(url, { cache: 'no-store' });
+    let res = await fetch(url, { cache: 'no-store' });
+    if (res.status === 404) {
+      // A daily update landed since this page booted: the pinned version is
+      // gone. Refreshing the manifest also refreshes the plan, so re-resolve
+      // this key from the new version instead of failing the download.
+      const fresh = await refreshManifest();
+      const entry = fresh.files.find((f) => f.key === file.key);
+      if (entry) file = entry;
+      url = await resolveFileUrl(file.key);
+      res = await fetch(url, { cache: 'no-store' });
+    }
+    if (res.status === 503 || res.status === 429) {
+      // The gate closed the month (or the day). Its message is the one the
+      // toast and the FAQ both carry, so it travels up unchanged.
+      const pause = await readPause(res);
+      if (pause) {
+        setStatus({ paused: pause });
+        throw new Error(pause.message);
+      }
+    }
     if (!res.ok || !res.body) throw new Error(`Download failed (${res.status}): ${file.key}`);
     // Written straight from the response into OPFS: buffering a 28MB chunk as
     // a Blob is what iOS Safari reports as an out-of-memory `UnknownError`.
@@ -430,6 +605,187 @@ async function storeFile(file: ManifestFile, track = true): Promise<void> {
     bytesLoaded: status.bytesLoaded + Math.max(0, file.bytes - received),
   });
   if (track) markLoaded(file.key);
+}
+
+// -------- Bundles --------
+// A new device used to ask the gate for thirty files, which is thirty Worker
+// requests. `/bulk` answers all of them in one: a small header naming each
+// file's byte count, then the files back to back. The browser writes each file
+// as it arrives, so a 750MB bundle never sits in memory.
+
+const BULK_MAGIC_LENGTH = 8;
+/** 8-byte magic + u32 header length. */
+const BULK_PREAMBLE = 12;
+/** The gate's own ceiling is 64 keys and 1.2GB; stay inside both. */
+const BULK_MAX_FILES = 60;
+const BULK_MAX_BYTES = 1_000_000_000;
+
+/** Bytes already read from the bundle that the next file has not consumed. */
+interface ChunkCursor {
+  pending: Uint8Array | null;
+}
+
+/** Reads exactly `length` bytes, keeping any surplus for the next caller. */
+async function readExactly(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  cursor: ChunkCursor,
+  length: number,
+): Promise<Uint8Array> {
+  const out = new Uint8Array(length);
+  let filled = 0;
+  while (filled < length) {
+    if (!cursor.pending) {
+      const { done, value } = await reader.read();
+      if (done) throw new Error('The bundle ended early');
+      cursor.pending = value;
+    }
+    const chunk = cursor.pending;
+    const take = Math.min(chunk.length, length - filled);
+    out.set(chunk.subarray(0, take), filled);
+    filled += take;
+    cursor.pending = take === chunk.length ? null : chunk.subarray(take);
+  }
+  return out;
+}
+
+/** One file's slice of the bundle, as a stream `putFileStream` can consume. */
+function takeBytes(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  cursor: ChunkCursor,
+  total: number,
+): ReadableStream<Uint8Array> {
+  let remaining = total;
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      if (remaining <= 0) {
+        controller.close();
+        return;
+      }
+      try {
+        if (!cursor.pending) {
+          const { done, value } = await reader.read();
+          if (done) throw new Error('The bundle ended early');
+          cursor.pending = value;
+        }
+        const chunk = cursor.pending;
+        const take = Math.min(chunk.length, remaining);
+        controller.enqueue(chunk.subarray(0, take));
+        remaining -= take;
+        cursor.pending = take === chunk.length ? null : chunk.subarray(take);
+        if (remaining === 0) controller.close();
+      } catch (error) {
+        controller.error(error);
+      }
+    },
+  });
+}
+
+/** True when the file on disk already matches the manifest's byte count. */
+async function isCurrent(file: ManifestFile): Promise<boolean> {
+  const actual = await fileSize(file.key);
+  return actual !== null && actual === file.bytes;
+}
+
+/** A downloaded plan file moves the "N of M" count; a sidecar never does. */
+function noteDownloaded(file: ManifestFile): void {
+  if (activePlan?.includes(file.key)) markLoaded(file.key);
+}
+
+/** One gate request for several files. Throws on any refusal or bad frame. */
+async function bulkDownload(files: ManifestFile[], version: string): Promise<void> {
+  const res = await fetch(`${GATEWAY_BASE_URL}/bulk${gateQuery(firstSync)}`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ version, keys: files.map((f) => f.key) }),
+  });
+
+  if (res.status === 503 || res.status === 429) {
+    const pause = await readPause(res);
+    if (pause) {
+      setStatus({ paused: pause });
+      throw new Error(pause.message);
+    }
+  }
+  if (res.status === 404) {
+    // A daily update landed since this page booted and the pinned version is
+    // gone; the per-file retry path re-reads the manifest.
+    throw new Error('Bundle version is gone');
+  }
+  if (!res.ok || !res.body) throw new Error(`Bundle failed (${res.status})`);
+
+  const reader = res.body.getReader();
+  const cursor: ChunkCursor = { pending: null };
+  const head = await readExactly(reader, cursor, BULK_PREAMBLE);
+  const magic = new TextDecoder().decode(head.slice(0, BULK_MAGIC_LENGTH));
+  if (magic !== 'SLTPBULK') throw new Error('Bundle header was not recognised');
+  const headerLength = new DataView(head.buffer).getUint32(BULK_MAGIC_LENGTH, true);
+  const header = JSON.parse(
+    new TextDecoder().decode(await readExactly(reader, cursor, headerLength)),
+  ) as { files?: { key: string; bytes: number }[] };
+  if (!Array.isArray(header.files)) throw new Error('Bundle header was malformed');
+
+  for (const entry of header.files) {
+    const file = files.find((f) => f.key === entry.key);
+    if (!file) throw new Error(`Bundle carried an unrequested file: ${entry.key}`);
+    let received = 0;
+    const count = (bytes: number): void => {
+      received += bytes;
+      setStatus({ bytesLoaded: status.bytesLoaded + bytes });
+    };
+    await putFileStream(entry.key, takeBytes(reader, cursor, entry.bytes), count);
+    setStatus({ bytesLoaded: status.bytesLoaded + Math.max(0, entry.bytes - received) });
+    noteDownloaded(file);
+  }
+  await reader.cancel().catch(() => undefined);
+}
+
+/**
+ * Fetches a list in the fewest gate requests that fit: one bundle per batch,
+ * with a per-file request only for whatever a bundle did not deliver. A gate
+ * refusal stops the whole pass — asking again would only be refused again.
+ */
+async function fetchFiles(files: ManifestFile[], version: string): Promise<void> {
+  let batch: ManifestFile[] = [];
+  let bytes = 0;
+
+  const flush = async (): Promise<void> => {
+    if (batch.length === 0) return;
+    const group = batch;
+    batch = [];
+    bytes = 0;
+    if (group.length > 1) {
+      try {
+        await bulkDownload(group, version);
+        return;
+      } catch (error) {
+        if (status.paused) throw error;
+        // A bundle that breaks halfway leaves gaps; the loop below fills them
+        // one file at a time, exactly as the old path did.
+      }
+    }
+    for (const file of group) {
+      if (await isCurrent(file)) {
+        noteDownloaded(file);
+        continue;
+      }
+      try {
+        await downloadFile(file);
+      } catch (error) {
+        if (status.paused) throw error;
+        setStatus({ error: error instanceof Error ? error.message : `Could not fetch ${file.key}` });
+      }
+    }
+  };
+
+  for (const file of files) {
+    if (batch.length >= BULK_MAX_FILES || (batch.length > 0 && bytes + file.bytes > BULK_MAX_BYTES)) {
+      await flush();
+    }
+    batch.push(file);
+    bytes += file.bytes;
+  }
+  await flush();
 }
 
 /**
@@ -475,6 +831,10 @@ async function runBoot(): Promise<void> {
   // The manifest is tiny and every path needs it, including browsers with no
   // OPFS. Fetch it before deciding how much this device can hold.
   const manifest = await ensureManifest();
+  // Earlier builds wrote the marker as `__version.txt`, a name sltp's own
+  // freshness check never read. One line drops the leftover; the marker now
+  // lives at `version.txt`, where both readers look.
+  if (supported) await deleteFile('__version.txt');
   const stored = supported ? await readVersion() : null;
   const planList = planKeys(manifest.files);
   activePlan = planList;
@@ -546,80 +906,57 @@ async function runBoot(): Promise<void> {
   for (const key of present) counted.add(key);
   setStatus({ loadedFiles: newestFirst(present), bytesLoaded: presentBytes });
 
-  // Search is the first thing a new visitor touches. Pull the 0.4MB catalog
-  // beside the priority pair so suggestions never wait for 30MB of bars.
-  const catalogEntry = manifest.files.find((f) => f.key === CATALOG_KEY);
-  if (catalogEntry && !(await hasFile(CATALOG_KEY))) {
-    void ensureFile(CATALOG_KEY).catch(() => undefined);
-  }
-
-  // The pair every chart needs: the daily tail plus the current era.
+  // What is left to fetch, in paint order: the tail and the current era (all a
+  // chart needs), then the two sidecars (search and dividends), then the older
+  // eras newest first. Sizes were reconciled above, so this list is the work.
   const priority = priorityKeys(planList);
-  const missing = [];
-  for (const key of priority) {
-    if (!(await hasFile(key))) missing.push(key);
-  }
-  if (stored !== manifest.version || missing.length > 0) {
-    setStatus({ phase: 'priority' });
-    for (const key of priority) {
-      const entry = manifest.files.find((f) => f.key === key);
-      if (!entry) continue;
-      countBytes(entry);
-      if (await hasFile(key)) {
-        markLoaded(key);
-        continue;
-      }
-      try {
-        await downloadFile(entry);
-      } catch (err) {
-        setStatus({
-          error: err instanceof Error ? err.message : `Could not fetch ${key}`,
-        });
-      }
+  const sidecars = manifest.files
+    .filter((f) => f.key === CATALOG_KEY || f.key.endsWith('market_actions.parquet'))
+    .map((f) => f.key);
+  const wanted = new Set<string>();
+  const needed: ManifestFile[] = [];
+  for (const key of [...priority, ...sidecars, ...planList]) {
+    if (wanted.has(key)) continue;
+    wanted.add(key);
+    const entry = manifest.files.find((f) => f.key === key);
+    if (!entry) continue;
+    const actual = await fileSize(key);
+    if (actual === entry.bytes) {
+      noteDownloaded(entry);
+      continue;
     }
-    await writeVersion(manifest.version);
-    // The sidecars ride with the priority pair on every device: the actions
-    // file (~1MB — every adjusted chart wants splits and dividends) and the
-    // ticker directory (~380KB — search will read it). Neither counts as a
-    // history file; they just stop future pages fetching them piecemeal.
-    for (const sidecar of manifest.files.filter(
-      (f) => f.key.endsWith('market_actions.parquet') || f.key === CATALOG_KEY,
-    )) {
-      const actual = await fileSize(sidecar.key);
-      if (actual === null) {
-        /* missing — downloaded below */
-      } else if (actual === sidecar.bytes) {
-        continue;
-      } else {
-        await deleteFile(sidecar.key);
-      }
-      try {
-        countBytes(sidecar);
-        await downloadFile(sidecar, false);
-      } catch (err) {
-        setStatus({
-          error: err instanceof Error ? err.message : `Could not fetch ${sidecar.key}`,
-        });
-      }
-    }
-  } else {
-    // Warm visit: the plan is already home, and the present scan above
-    // already counted its bytes. Nothing left to add.
+    if (actual !== null) await deleteFile(key);
+    countBytes(entry);
+    needed.push(entry);
   }
 
-  // Then the rest of history, newest era first, one file at a time. A phone
-  // never gets here — its plan has nothing left after the priority pair.
-  const remaining = planList.filter((key) => !priority.includes(key));
-  if (remaining.length === 0) {
-    setStatus({ phase: 'ready' });
+  if (needed.length === 0) {
+    await writeVersion(manifest.version);
+    setStatus({ phase: 'ready', olderDeferred: false });
+    return;
+  }
+
+  // The gate carries the head of the plan in one request; the older eras are
+  // one or two more. Cellular still stops after the head and waits for a tap.
+  const head = priority.length + sidecars.length;
+  const first = needed.slice(0, head);
+  const later = needed.slice(head);
+
+  setStatus({ phase: 'priority' });
+  await fetchFiles(first, manifest.version);
+  await writeVersion(manifest.version);
+
+  if (later.length === 0) {
+    setStatus({ phase: 'ready', olderDeferred: false });
     return;
   }
   if (isMetered()) {
     setStatus({ phase: 'ready', olderDeferred: true });
     return;
   }
-  await prefetchKeys(manifest, remaining);
-  setStatus({ phase: 'ready' });
+  setStatus({ phase: 'prefetch' });
+  await fetchFiles(later, manifest.version);
+  setStatus({ phase: 'ready', olderDeferred: false });
 }
 
 /**
@@ -638,8 +975,12 @@ export async function prefetchOlder(): Promise<void> {
     return;
   }
   setStatus({ phase: 'prefetch', olderDeferred: false });
+  const entries = remaining
+    .map((key) => manifest.files.find((f) => f.key === key))
+    .filter((entry): entry is ManifestFile => entry !== undefined);
+  for (const entry of entries) countBytes(entry);
   try {
-    await prefetchKeys(manifest, remaining);
+    await fetchFiles(entries, manifest.version);
     setStatus({ phase: 'ready' });
   } catch (err) {
     setStatus({
@@ -647,32 +988,6 @@ export async function prefetchOlder(): Promise<void> {
       error: err instanceof Error ? err.message : 'Prefetch stopped early',
     });
   }
-}
-
-async function prefetchKeys(manifest: Manifest, keys: string[]): Promise<void> {
-  // The lane limiter in downloadFile keeps this two-wide; queueing every key
-  // here is what lets the second lane start while the first is still writing.
-  await Promise.all(
-    keys.map(async (key) => {
-      if (await hasFile(key)) {
-        markLoaded(key);
-        return;
-      }
-      const entry = manifest.files.find((f) => f.key === key);
-      if (!entry) return;
-      countBytes(entry);
-      try {
-        await downloadFile(entry);
-      } catch (err) {
-        // One failed era must not trap the rest behind it: keep walking
-        // backwards, and the chart fetches the gap on demand if asked.
-        setStatus({
-          error: err instanceof Error ? err.message : `Could not fetch ${key}`,
-        });
-      }
-      if (status.phase === 'priority') setStatus({ phase: 'prefetch' });
-    }),
-  );
 }
 
 /** For tests and sign-out cleanup: forget the boot so the next call reruns. */

@@ -43,7 +43,33 @@ interface Stored {
   used: number;
   day: string;
   requests: number;
+  refused?: Refused;
+  devices?: string[];
 }
+
+/**
+ * Refusals, split the way the operator brief reads them:
+ *
+ *   freshNew     a device with no reading history asked for its first files
+ *                after the month's allowance was already spent;
+ *   cacheCleared a device that had already downloaded this window came back
+ *                claiming to be new — it emptied its browser storage;
+ *   returning    a device that still holds files was stopped by the ceiling
+ *                that keeps the reserve for people with no cache;
+ *   requests     the daily Workers request line, which a scraper can trip
+ *                without touching R2 at all.
+ */
+export interface Refused {
+  freshNew: number;
+  cacheCleared: number;
+  returning: number;
+  requests: number;
+}
+
+const EMPTY_REFUSED: Refused = { freshNew: 0, cacheCleared: 0, returning: 0, requests: 0 };
+
+/** Bounded, so the object's storage value stays well under its per-key limit. */
+const DEVICE_CAP = 4000;
 
 export interface Reservation extends Omit<Decision, 'reason'> {
   reason: Decision['reason'] | 'requests';
@@ -73,6 +99,9 @@ export class Budget {
   private day = '';
   private requests = 0;
   private unflushed = 0;
+  private refused: Refused = { ...EMPTY_REFUSED };
+  /** Short hashes of devices that downloaded at least one file this window. */
+  private devices = new Set<string>();
 
   constructor(state: State) {
     this.state = state;
@@ -85,6 +114,8 @@ export class Budget {
         this.used = stored.used;
         this.day = stored.day;
         this.requests = stored.requests;
+        this.refused = { ...EMPTY_REFUSED, ...(stored.refused ?? {}) };
+        for (const id of stored.devices ?? []) this.devices.add(id);
       }
     });
   }
@@ -124,10 +155,12 @@ export class Budget {
       return this.json({ error: 'not found' }, 404);
     }
 
-    const body = (await request.json().catch(() => ({}))) as { new?: unknown };
+    const body = (await request.json().catch(() => ({}))) as { new?: unknown; d?: unknown };
     const isNewDevice = body.new === true;
+    const device = typeof body.d === 'string' && /^[a-z0-9]{4,24}$/.test(body.d) ? body.d : '';
 
     if (this.requests >= REQUEST_LIMIT) {
+      this.refused.requests += 1;
       const refused: Reservation = {
         allowed: false,
         reason: 'requests',
@@ -140,13 +173,23 @@ export class Budget {
     }
     this.requests += 1;
 
+    const seen = device !== '' && this.devices.has(device);
     const decision = decide(this.used, isNewDevice);
     if (decision.allowed) {
       this.used += 1;
+      // Remember the device so a later "I am new" from a browser that already
+      // downloaded reads as a cleared cache, not as a first visit.
+      if (device && !seen && this.devices.size < DEVICE_CAP) this.devices.add(device);
       // Reads are flushed immediately: the monthly ceiling is only exact if a
       // read that reached R2 cannot disappear with the isolate that counted it.
       await this.flush();
-    } else if (this.unflushed >= FLUSH_TICKS) {
+    } else {
+      // Sorting the refusal is what the brief counts: a device with no history
+      // is someone who arrived after the reserve filled, one with history that
+      // claims to be new emptied its cache, and everything else still holds
+      // its files.
+      const bucket: keyof Refused = isNewDevice ? (seen ? 'cacheCleared' : 'freshNew') : 'returning';
+      this.refused[bucket] += 1;
       await this.flush();
     }
 
@@ -167,6 +210,8 @@ export class Budget {
     if (this.window !== id) {
       this.window = id;
       this.used = 0;
+      this.refused = { ...EMPTY_REFUSED };
+      this.devices.clear();
     }
     if (this.day !== day) {
       this.day = day;
@@ -177,7 +222,14 @@ export class Budget {
   }
 
   private stored(): Stored {
-    return { window: this.window, used: this.used, day: this.day, requests: this.requests };
+    return {
+      window: this.window,
+      used: this.used,
+      day: this.day,
+      requests: this.requests,
+      refused: this.refused,
+      devices: this.devices.size > 0 ? [...this.devices] : undefined,
+    };
   }
 
   private async flush(): Promise<void> {
@@ -197,6 +249,8 @@ export class Budget {
       hardLimit: HARD_LIMIT,
       requests: this.requests,
       requestLimit: REQUEST_LIMIT,
+      refused: this.refused,
+      devicesKnown: this.devices.size,
       resetsAt: nextReset(now).toISOString(),
     };
   }

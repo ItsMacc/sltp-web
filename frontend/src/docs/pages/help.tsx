@@ -128,6 +128,23 @@ export const HELP: DocGroup = {
           kind: 'p',
           text: <>None for the modelled ones. Slippage and fees are already in every fill. To stress-test a less liquid name, run a copy with a wider stop and a smaller size instead of padding the levels of this one.</>,
         },
+        { kind: 'h3', id: 'capacity', text: "We didn't expect this many people this month" },
+        {
+          kind: 'p',
+          text: <>Because that is exactly what happened. We sized our market-data budget for the number of people we thought would join this month, and more of you arrived than we planned for. When that budget runs out, new downloads pause for the rest of the month.</>,
+        },
+        {
+          kind: 'p',
+          text: <>What keeps working: everything already saved in your browser. Charts, strategies and the Lab keep running on the history that device has. What waits: history it has never downloaded, such as older years, or a first visit on a new device.</>,
+        },
+        {
+          kind: 'p',
+          text: <>When it comes back: the allowance renews on the 6th of each month. We are raising it as fast as we can, so it may return sooner. Nothing is lost in the meantime, and you do not have to do anything: the download continues by itself on the first visit after the reset.</>,
+        },
+        {
+          kind: 'p',
+          text: <>If a date has passed and you are still seeing this, write to <C>support@sltp-app.com</C> with what the toast said, and we will look at your account.</>,
+        },
       ],
     },
     {
@@ -166,6 +183,27 @@ export const HELP: DocGroup = {
       title: 'Changelog',
       lead: 'What changed in the documentation and in the engine surface it describes.',
       blocks: [
+        { kind: 'h2', id: 'release-0-1-39', text: 'Release 0.1.39 — November 2026' },
+        {
+          kind: 'p',
+          text: <>One release number covers a lot this time, so here is the whole of it in one place before the details below. If you have read the engine source but this is your first pass over the docs, start here: these are the changes that alter what a result means.</>,
+        },
+        {
+          kind: 'ul',
+          items: [
+            <><strong>Order sizing is explicit.</strong> An order can be a fraction of equity, which is the old behaviour and still the default. It can also be a fixed number of index points, or a fraction capped by the cash you hold. The <C>OrderSizing</C> enum and the three modes are on the Utils page.</>,
+            <><strong>Dividends are paid.</strong> A lot held from the previous close collects cash on the ex-date, before that session&apos;s fills. Equity and closed-trade returns include it, and <C>include_dividends=False</C> reproduces the old price-only curve. Results pages show <C>dividend_income</C>.</>,
+            <><strong>Three strategies joined the library:</strong> Global Trend Allocation, Adaptive Momentum and a revised Statistical Mean Reversion. Each has a report, a rules page and eight windows with fees, slippage and dividends in.</>,
+            <><strong>The stored history changed container.</strong> A period&apos;s bars now live in one self-contained binary file instead of parquet: a header naming each symbol&apos;s run, then the columns. A chart reads one symbol&apos;s slice rather than a whole file, which is why a first load is quicker than it used to be. Nothing in the API changes \u2014 <C>query_market_data</C> and the Lab see the same frames.</>,
+            <><strong>The engine surface did not break.</strong> No strategy hook changed signature, no constant was renamed. Existing strategies run unchanged; the differences you can measure are dividends, if you were running price-only before.</>,
+          ],
+        },
+        {
+          kind: 'callout',
+          tone: 'note',
+          title: 'Where the depth lives',
+          text: <>These pages stay at the level of behaviour: what a call does, what a result contains, what a rule costs you. The code-level notes for this release are in the entries below, and the source is the final word when a page and the code disagree.</>,
+        },
         { kind: 'h2', id: 'order-sizing', text: 'Order sizing — November 2026' },
         {
           kind: 'ul',

@@ -17,10 +17,12 @@
 export const EXISTING_LIMIT = 9_000_000;
 export const HARD_LIMIT = 9_950_000;
 
-/** Requests per UTC day, cache hits included. The Workers Free plan stops the
-    whole Worker at 100,000/day (Error 1027), so the gate closes earlier and
-    says so, leaving room for the manifest and health calls to keep working. */
-export const REQUEST_LIMIT = 70_000;
+/** Requests per UTC day, cache hits included. Set just under the paid plan's
+    daily allowance, so the gate — not the platform — is what a visitor meets
+    when the line is crossed, and the refusal carries a readable message.
+    (The free plan stops the Worker itself at 100,000/day; below that, this
+    ceiling never gets to answer.) */
+export const REQUEST_LIMIT = 999_000;
 
 /** R2 bills on the 6th: the script's BILLING_RESET_DAY. */
 export const BILLING_RESET_DAY = 6;
@@ -69,6 +71,32 @@ export function nextReset(now: Date): Date {
   return new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, BILLING_RESET_DAY));
 }
 
+/** The sentence the toast shows and the FAQ repeats word for word, so a reader
+    who searches the toast finds the explanation. Keep them in one place. */
+export const CAPACITY_LINE = "We didn't expect this many people this month";
+
+/** The daily-line counterpart. The Workers quota is a per-day wall, not a
+    monthly one, and it clears at midnight UTC. */
+export const DAILY_LINE = 'Market data is having a busy day';
+
+/** A short date for reading aloud: "December 6". */
+function shortDate(resetsAt: string): string {
+  return new Date(resetsAt).toLocaleDateString('en-US', {
+    month: 'long',
+    day: 'numeric',
+    timeZone: 'UTC',
+  });
+}
+
+/** The copy the toast shows when the daily request line closes. */
+export function requestPauseMessage(resetsAt: string): string {
+  return (
+    `${DAILY_LINE}, so new market-data downloads are paused until tomorrow. ` +
+    `Everything already saved in your browser keeps working, and downloads come back ` +
+    `by themselves after midnight UTC. Sorry about that.`
+  );
+}
+
 /** The copy a paused download returns, one voice for every caller. */
 export function pauseMessage(reason: Exclude<Refusal, null>, resetsAt: string): string {
   const date = new Date(resetsAt).toLocaleDateString('en-US', {
@@ -77,15 +105,16 @@ export function pauseMessage(reason: Exclude<Refusal, null>, resetsAt: string): 
     year: 'numeric',
     timeZone: 'UTC',
   });
+  const day = shortDate(resetsAt);
   if (reason === 'hard') {
     return (
-      `We didn't expect this many people. New market-data downloads are paused until ${date}, ` +
-      `because this month's allowance is spent. Everything already saved in your browser keeps ` +
-      `working, and downloads come back automatically on ${date}. Sorry about that.`
+      `${CAPACITY_LINE}, so new market-data downloads are paused until ${date}. ` +
+      `Everything already saved in your browser keeps working, and downloads come back ` +
+      `automatically on ${date}. Sorry about that.`
     );
   }
   return (
     `This device has used its share of this month's market-data downloads. Everything you have ` +
-    `already saved keeps working, and new downloads resume on ${date}.`
+    `already saved keeps working, and new downloads resume on ${day}.`
   );
 }

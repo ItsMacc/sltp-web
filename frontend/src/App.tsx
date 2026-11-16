@@ -17,8 +17,8 @@ import LearnPage from './pages/LearnPage';
 import WatchlistPage from './pages/WatchlistPage';
 import ErrorToast from './ui/ErrorToast';
 import { Loader, LoaderOverlay } from './ui/Loader';
-import { supabase } from '../lib/supabase';
-import { bootMarketSync } from './store';
+import { clearRememberedLogin, sessionExpired, supabase } from '../lib/supabase';
+import { bootMarketSync, useMarketSyncStatus } from './store';
 import { invalidatePortfolio, provisionAccount } from '../lib/api';
 import { seedUserAwards } from '../lib/learnApi';
 import { pageTitleFor, usePageTitle } from './usePageTitle';
@@ -68,6 +68,14 @@ export default function App() {
   const [signingOut, setSigningOut] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
   const [guideIndex, setGuideIndex] = useState(0);
+  // A dismissed gate message stays dismissed for this message; a later refusal
+  // (a new day, a new month) says its piece once more.
+  const [dismissedPause, setDismissedPause] = useState<string | null>(null);
+  const marketSync = useMarketSyncStatus();
+  const pauseNotice =
+    marketSync.paused && marketSync.paused.message !== dismissedPause
+      ? marketSync.paused.message
+      : null;
 
   // One account sync per user at a time. The sign-in card and the auth
   // listener both ask for it, and the Turso write must only happen once.
@@ -207,6 +215,7 @@ export default function App() {
       invalidatePortfolio();
       setAuthMode(null);
       setLegalPage(null);
+      clearRememberedLogin();
       await supabase.auth.signOut();
     } finally {
       setSigningOut(false);
@@ -265,6 +274,13 @@ export default function App() {
 
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
+      // A visitor who did not ask to be remembered gets one day; the token is
+      // still valid, so this is where that promise is kept.
+      if (session?.user && sessionExpired()) {
+        await supabase.auth.signOut();
+        setLoading(false);
+        return;
+      }
       if (session?.user) await syncUser(session.user.id, session.user.email || '');
       setLoading(false);
     });
@@ -409,6 +425,13 @@ export default function App() {
 
       {authNotice && (
         <ErrorToast message={authNotice} onClose={() => setAuthNotice(null)} />
+      )}
+
+      {/* The gate closed the month (or the day). Its words are the same ones
+          the help page answers under, so a reader who searches the toast finds
+          the explanation. */}
+      {pauseNotice && (
+        <ErrorToast message={pauseNotice} onClose={() => setDismissedPause(pauseNotice)} />
       )}
 
       {/* Signing out closes the session on the server, so the page waits

@@ -15,18 +15,18 @@
 // browser stack (synchronous XHR, which is why this worker exists: the
 // main thread cannot do it), landing in the same mounted files.
 //
-// Wheels ride OPFS too (WHEELS/, shared with the page): the first visit
-// downloads the pinned builds from PyPI once, later visits install them
-// from disk with no network at all.
+// Dependencies come from the Pyodide distribution and sltp is the one pip
+// install, so a boot talks to PyPI for that wheel and nothing else. The
+// market bytes are already on disk in OPFS.
 
-import { getFile, hasFile, pruneWheels, putFile } from './opfs';
 
 /** Pinned runtime: the full build serves loadPyodide plus every wheel. */
 const PYODIDE_INDEX_URL = 'https://cdn.jsdelivr.net/pyodide/v314.0.7/full/';
-/** Engine pin: matches backend/requirements.txt. */
+/** Engine pin: matches backend/requirements.txt. The only pip install here:
+    numpy, pyarrow and python-dateutil all ship in the Pyodide distribution
+    and are loaded as binary packages, because a WASM runtime cannot use the
+    CPython wheels on PyPI. */
 const SLTP_VERSION = '0.1.39';
-/** Pure-Python date library the strategy base imports. */
-const DATEUTIL_VERSION = '2.9.0';
 
 /** The slice of the Pyodide JS API this worker touches. */
 interface PyodideApi {
@@ -34,7 +34,7 @@ interface PyodideApi {
   runPythonAsync: (code: string) => Promise<unknown>;
   pyimport: (name: string) => { install: (requirement: string) => Promise<unknown> };
   globals: { get: (name: string) => (...args: unknown[]) => unknown };
-  FS: { mkdirTree: (path: string) => void; writeFile: (path: string, data: Uint8Array) => void };
+  FS: { mkdirTree: (path: string) => void };
   mountNativeFS: (mountpoint: string, handle: FileSystemDirectoryHandle) => Promise<unknown>;
 }
 
@@ -65,6 +65,13 @@ import json
 import time
 
 _STRATEGIES = {}
+
+# The bars are already in the mounted OPFS cache and the page's own sync owns
+# freshness. With auto-update on, sltp re-reads R2 metadata through a
+# synchronous XHR before every read, serialising the run behind the network
+# for nothing.
+from sltp.data import config as _config
+_config.set_auto_update(False)
 
 # Timings for one run: how much of it was reading bars, and how much was the
 # day loop itself. Printed in the UI, so a slow phone names its bottleneck
@@ -257,85 +264,65 @@ def run_terminal(code):
 
 
 def prime_remote_cache():
-    # The bucket layout is uppercase (SYMBOL_DATA) while the readers open
-    # the lowercase symbol_data directory beside the market dir, so mirror
-    # the small metadata files to the names sltp actually opens. Bars and
-    # actions already sit where sltp looks (MARKET_DAILY/). Runs at every
-    # boot, so a half-written file heals itself on the next visit.
+    # sltp reads bars from ~/.sltp/cache/MARKET_DAILY (the OPFS directory
+    # mounted there) and the catalog beside it in ~/.sltp/cache/symbol_data,
+    # while the bucket and the browser sync both write the uppercase
+    # SYMBOL_DATA/ name. Mirror the small metadata files onto the lowercase
+    # path the readers open. Bars need no move: a 0.1.39 bundle is already
+    # a MARKET_DAILY/market_data_<year>.bin. Runs at every boot, so a
+    # half-written file heals itself on the next visit.
     import shutil
     from pathlib import Path
-    from sltp.data import market_data_service as _mds
     from sltp.data import remote as _remote
 
-    # Self-heal: anything cached without the parquet magic is dropped so
-    # the sync below downloads it again.
-    for directory in (Path(_remote.CACHE_ROOT) / "MARKET_DAILY", Path(_mds.SYMBOL_DATA_DIR)):
-        if directory.is_dir():
-            for cached in directory.glob("*.parquet"):
-                with open(cached, "rb") as handle:
-                    if handle.read(4) != b"PAR1":
-                        cached.unlink()
-    _remote.sync_catalog()
-    _remote.sync_actions()
-    src = Path(_remote.CACHE_ROOT) / "SYMBOL_DATA"
-    dest = Path(_mds.SYMBOL_DATA_DIR)
-    if src.is_dir():
-        dest.mkdir(parents=True, exist_ok=True)
+    cache = Path(_remote.CACHE_ROOT)
+    market = cache / "MARKET_DAILY"
+    symbol_dir = cache / "symbol_data"
+
+    # Self-heal: a parquet without its magic is a truncated download, and a
+    # bundle too small to hold a header is not a bundle. Drop both so the
+    # next sync (or sltp's own fetch) writes them again.
+    for cached in [*market.glob("*.parquet"), *symbol_dir.glob("*.parquet")]:
         try:
-            same = src.resolve() == dest.resolve()
+            with open(cached, "rb") as handle:
+                broken = handle.read(4) != b"PAR1"
+        except OSError:
+            broken = True
+        if broken:
+            cached.unlink(missing_ok=True)
+    for cached in market.glob("*.bin"):
+        try:
+            if cached.stat().st_size <= 24:
+                cached.unlink()
+        except OSError:
+            pass
+
+    # Metadata already on disk means no network: the main-thread sync owns
+    # freshness, and sltp's own fetch still fills a missing bundle on demand.
+    have_catalog = (cache / "SYMBOL_DATA" / "symbol_catalog.parquet").is_file() or (
+        symbol_dir / "symbol_catalog.parquet"
+    ).is_file()
+    if not (have_catalog and (market / "market_actions.parquet").is_file()):
+        _remote.sync_catalog()
+        _remote.sync_actions()
+
+    symbol_dir.mkdir(parents=True, exist_ok=True)
+
+    src = cache / "SYMBOL_DATA"
+    if src.is_dir():
+        try:
+            same = src.resolve() == symbol_dir.resolve()
         except OSError:
             same = False
         if not same:
             for child in src.iterdir():
                 if child.is_file():
                     try:
-                        shutil.copy2(child, dest / child.name)
+                        shutil.copy2(child, symbol_dir / child.name)
                     except shutil.SameFileError:
                         # Case-insensitive checkout: src and dest are one dir.
                         pass
 `;
-
-/** Exact wheel URL for a pinned pure-Python release, via the PyPI API. */
-async function pypiWheelUrl(name: string, version: string): Promise<{ filename: string; url: string }> {
-  const res = await fetch(`https://pypi.org/pypi/${name}/${version}/json`);
-  if (!res.ok) throw new Error(`PyPI lookup failed for ${name}==${version} (${res.status})`);
-  const meta = (await res.json()) as {
-    urls?: { filename: string; url: string }[];
-  };
-  const pure = (meta.urls ?? []).find(
-    (u) => u.filename.endsWith('.whl') && !u.filename.includes('cp') && !u.filename.includes('pp'),
-  );
-  const wheel = pure ?? (meta.urls ?? []).find((u) => u.filename.endsWith('.whl'));
-  if (!wheel) throw new Error(`No wheel found for ${name}==${version}`);
-  return { filename: wheel.filename, url: wheel.url };
-}
-
-/**
- * One pinned wheel: OPFS on a hit, PyPI (then stored) on a miss. Installs
- * through micropip's `emfs:` scheme — note the single colon — which reads
- * the file we wrote into the Emscripten filesystem below.
- */
-async function installWheel(
-  pyodide: PyodideApi,
-  micropip: { install: (requirement: string) => Promise<unknown> },
-  name: string,
-  version: string,
-): Promise<{ cached: boolean; filename: string }> {
-  const { filename, url } = await pypiWheelUrl(name, version);
-  const key = `WHEELS/${filename}`;
-  let cached = true;
-  if (!(await hasFile(key))) {
-    cached = false;
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`Wheel download failed for ${filename} (${res.status})`);
-    await putFile(key, new Blob([await res.arrayBuffer()]));
-  }
-  const file = await getFile(key);
-  if (!file) throw new Error(`Wheel vanished after download: ${filename}`);
-  pyodide.FS.writeFile(`/tmp/${filename}`, new Uint8Array(await file.arrayBuffer()));
-  await micropip.install(`emfs:/tmp/${filename}`);
-  return { cached, filename };
-}
 
 /** Sync downloads through the browser's own network stack. open_url decodes
     to text, which corrupts parquet beyond its ASCII magic, so the response
@@ -382,7 +369,6 @@ def enable_browser_fetch():
 
 let pyodide: PyodideApi | null = null;
 let booted = false;
-let bootCached = false;
 let cacheMounted = false;
 
 function reply(
@@ -396,8 +382,8 @@ function reply(
   self.postMessage({ id, kind, ok, data, error, ...extra });
 }
 
-async function boot(strategies: StrategyInit[]): Promise<boolean> {
-  if (booted) return bootCached;
+async function boot(strategies: StrategyInit[]): Promise<void> {
+  if (booted) return;
   // One stage message per step, so the page can say what the first run is
   // waiting on instead of a blank "Loading engine…".
   let last = performance.now();
@@ -409,32 +395,30 @@ async function boot(strategies: StrategyInit[]): Promise<boolean> {
   const instance = await loadPyodideAtPin();
   pyodide = instance;
   step('python');
-  // Binary wheels come from the Pyodide distribution, not PyPI: a WASM
-  // runtime cannot consume CPython wheels, so numpy loads here and micropip
-  // then only fetches what is still missing (the pinned wheels below).
-  await instance.loadPackage(['micropip', 'numpy']);
-  step('numpy');
-  // The market cache, mounted where sltp looks for it. Best-effort: a
-  // denial falls back to memory downloads, which still run and simply
-  // refetch next visit.
-  try {
-    const root = await navigator.storage.getDirectory();
-    const cacheHandle = await root.getDirectoryHandle('sltp-market', { create: true });
-    instance.FS.mkdirTree('/home/pyodide/.sltp/cache');
-    await instance.mountNativeFS('/home/pyodide/.sltp/cache', cacheHandle);
-    cacheMounted = true;
-  } catch {
-    /* memory cache only */
+  // Everything sltp imports besides itself (numpy, pyarrow, python-dateutil)
+  // comes from the Pyodide distribution: a WASM runtime cannot load the
+  // CPython wheels on PyPI, so these load as binary packages and the one
+  // pip install below has nothing left to resolve.
+  await instance.loadPackage(['micropip', 'numpy', 'pyarrow', 'python-dateutil']);
+  step('packages');
+  // The market cache, always mounted where sltp looks for it: OPFS
+  // sltp-market/ appears as ~/.sltp/cache inside Pyodide, so runs read the
+  // bars the sync already downloaded instead of pulling them again. No
+  // mount means no run — a memory filesystem would silently refetch the
+  // history and then lose it on reload.
+  if (!navigator.storage?.getDirectory) {
+    throw new Error('This browser has no OPFS, so the market cache cannot be mounted.');
   }
+  const root = await navigator.storage.getDirectory();
+  const cacheHandle = await root.getDirectoryHandle('sltp-market', { create: true });
+  instance.FS.mkdirTree('/home/pyodide/.sltp/cache');
+  await instance.mountNativeFS('/home/pyodide/.sltp/cache', cacheHandle);
+  cacheMounted = true;
   step('cache');
+  // The one pip install. Everything sltp imports is already loaded, so
+  // micropip has nothing else to resolve.
   const micropip = instance.pyimport('micropip');
-  const wheels = await Promise.all([
-    installWheel(instance, micropip, 'sltp', SLTP_VERSION),
-    installWheel(instance, micropip, 'python-dateutil', DATEUTIL_VERSION),
-  ]);
-  // WHEELS/ is shared with the Lab; keep it to the builds this worker pins so
-  // superseded sltp releases do not sit there for good.
-  await pruneWheels(wheels.map((wheel) => wheel.filename));
+  await micropip.install(`sltp==${SLTP_VERSION}`);
   step('wheels');
   await instance.runPythonAsync(BOOTSTRAP + FETCH_BRIDGE);
   step('engine');
@@ -449,18 +433,15 @@ async function boot(strategies: StrategyInit[]): Promise<boolean> {
   for (const entry of strategies) {
     register(entry.key, entry.className, entry.source);
   }
-  bootCached = wheels.every((wheel) => wheel.cached);
   booted = true;
-  return bootCached;
 }
 
 self.onmessage = async (event: MessageEvent<Incoming>) => {
   const message = event.data;
   try {
     if (message.kind === 'init') {
-      const wheelsCached = await boot(message.strategies);
+      await boot(message.strategies);
       reply(message.id, message.kind, true, JSON.stringify({ ready: true }), undefined, {
-        wheelsCached,
         mounted: cacheMounted,
       });
       return;

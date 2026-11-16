@@ -1,9 +1,10 @@
 // ResearchPage.tsx — Price history workspace: ticker list, chart, stats
 //
-// Same page as before the trim, with one change under the hood: bars come
-// from the browser's OPFS market cache (queryMarketDataProgressively / queryQuotes)
-// instead of the Python API server. The Strategies tab stays as a switch
-// with a blank page behind it until strategies are built.
+// Bars come from the browser's OPFS market cache (queryMarketDataProgressively /
+// queryQuotes) instead of the Python API server. The Strategies tab runs the
+// same sltp engine in a worker over that same cache: it mounts the OPFS
+// directory at sltp's own cache path and reads only the history a run asks
+// for, so a backtest never downloads a file the sync already holds.
 import {
   useCallback,
   useEffect,

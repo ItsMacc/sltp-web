@@ -78,7 +78,7 @@ def main() -> int:
     files += [keep[TAIL_KEY], keep[ACTIONS_KEY]]
 
     version = date.today().isoformat()
-    manifest = {"version": version, "files": files}
+    manifest = {"version": version, "updated": version, "files": files}
     (out / "manifest.json").write_text(json.dumps(manifest, indent=1) + "\n", encoding="utf-8")
     (out / "version.txt").write_text(version + "\n", encoding="utf-8")
     tail = keep[TAIL_KEY]

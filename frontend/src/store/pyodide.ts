@@ -47,7 +47,7 @@ const INITIAL: EngineStatus = { phase: 'idle', detail: null, cachedWheels: false
 /** What each worker boot stage means to a reader. */
 const WARM_STAGE: Record<string, string> = {
   python: 'Loading the Python runtime…',
-  numpy: 'Loading numpy…',
+  packages: 'Loading the Python packages…',
   cache: 'Mounting the market cache…',
   wheels: 'Installing the engine…',
   engine: 'Registering strategies…',

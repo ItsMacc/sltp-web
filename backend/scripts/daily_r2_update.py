@@ -10,7 +10,7 @@ dividends/splits when the window held any, and makes these writes:
 
   1. MARKET_DAILY/market_data_recent.bin (self-contained flat bundle)
   2. MARKET_DAILY/market_actions.parquet (only when payouts occurred)
-  3. META/manifest.json (entry bytes/rows/last_session + version)
+  3. META/manifest.json (entry bytes/rows/last_session + version + updated)
   4. META/version.txt (same version string)
 
 The .bin format is: 24-byte preamble (magic SLTPFLAT, format 1, header_len,
@@ -232,6 +232,9 @@ def main() -> int:
     # the newest bar session after a backfill.
     version = max(new_max, str(manifest.get("version", "")))
     manifest["version"] = version
+    # When the publisher last wrote: the browsers compare this date against the
+    # user's update horizon, so it has to move on every run that changes bytes.
+    manifest["updated"] = date.today().isoformat()
     _s3("PUT", MANIFEST_KEY, json.dumps(manifest, indent=1).encode())  # write 3: manifest
     _s3("PUT", VERSION_KEY, f"{version}\n".encode())  # write 4: version
 
@@ -317,6 +320,7 @@ def fold_year(year: int) -> int:
                   row_groups=0)
     today = max(date.today().isoformat(), str(manifest.get("version", "")))
     manifest["version"] = today
+    manifest["updated"] = date.today().isoformat()
     _s3("PUT", MANIFEST_KEY, json.dumps(manifest, indent=1).encode())
     _s3("PUT", VERSION_KEY, f"{today}\n".encode())
 

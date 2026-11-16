@@ -28,12 +28,17 @@ import {
   isHeavyChartLimit,
   readChartMaxBars,
   readStrategyChartStyle,
+  readUpdateHorizon,
+  updateHorizonDays,
   DEFAULT_CHART_MAX_BARS,
   DEFAULT_STRATEGY_CHART_STYLE,
+  DEFAULT_UPDATE_HORIZON,
   type ChartMaxBars,
   type StrategyChartStyle,
+  type UpdateHorizon,
   type UserSettings,
 } from '../../lib/settings';
+import { useMarketSyncStatus } from '../store';
 import './SettingsPage.css';
 
 const EDITOR_FONT_SIZE_OPTIONS = Array.from({ length: 11 }, (_, i) => {
@@ -80,6 +85,11 @@ export default function SettingsPage({ userId, userEmail, initialName, onProfile
   const [strategyChartStyle, setStrategyChartStyle] = useState<StrategyChartStyle>(DEFAULT_STRATEGY_CHART_STYLE);
   const [defaultZoom, setDefaultZoom] = useState(90);
   const [chartMaxBars, setChartMaxBars] = useState<ChartMaxBars>(DEFAULT_CHART_MAX_BARS);
+  const [updateHorizon, setUpdateHorizon] = useState<UpdateHorizon>(DEFAULT_UPDATE_HORIZON);
+
+  // What this browser is holding, shown beside the horizon it is checked on.
+  // The sync status already carries both, so the page adds no query of its own.
+  const marketSync = useMarketSyncStatus();
 
   // Notifications & Alerts State
   const [tradeSignals, setTradeSignals] = useState(true);
@@ -147,6 +157,7 @@ export default function SettingsPage({ userId, userEmail, initialName, onProfile
           setStrategyChartStyle(readStrategyChartStyle(currentSettings));
           if (currentSettings.defaultZoom) setDefaultZoom(currentSettings.defaultZoom);
           setChartMaxBars(readChartMaxBars(currentSettings));
+          setUpdateHorizon(readUpdateHorizon(currentSettings));
 
           if (currentSettings.tradeSignals !== undefined) setTradeSignals(currentSettings.tradeSignals);
           if (currentSettings.securityWarnings !== undefined) setSecurityWarnings(currentSettings.securityWarnings);
@@ -332,6 +343,7 @@ export default function SettingsPage({ userId, userEmail, initialName, onProfile
         strategyChartStyle,
         defaultZoom,
         chartMaxBars,
+        updateHorizon,
         tradeSignals,
         securityWarnings,
         dailySummary,
@@ -599,6 +611,48 @@ export default function SettingsPage({ userId, userEmail, initialName, onProfile
                       Loading this many bars can make the page lag a little.
                     </span>
                   )}
+                </div>
+
+                <div className="st-settings-field">
+                  <label className="st-settings-label">Request update horizon</label>
+                  <RadioGroup
+                    name="updateHorizon"
+                    value={updateHorizon}
+                    onChange={(val) => setUpdateHorizon(readUpdateHorizon({ updateHorizon: String(val) }))}
+                    options={[
+                      { label: 'Every day (recommended)', value: 'daily' },
+                      { label: 'Every week', value: 'weekly' },
+                      { label: 'Every month', value: 'monthly' },
+                    ]}
+                  />
+                  <span className="st-settings-hint">
+                    How often this browser asks for fresh market data. This is only the daily
+                    Open, High, Low and Close prices we publish \u2014 not your portfolio, your
+                    projects or anything else you own, which are saved to your account as usual.
+                  </span>
+                  <span className="st-settings-hint">
+                    <strong>Every day:</strong> charts, strategies and the Lab always include
+                    yesterday&apos;s session; the check costs a few megabytes on the days it runs.{' '}
+                    <strong>Every week:</strong> data can be up to {updateHorizonDays('weekly')} days
+                    old, so last week&apos;s sessions may be missing from charts, strategies and the
+                    Lab until the next check.{' '}
+                    <strong>Every month:</strong> up to {updateHorizonDays('monthly')} days of
+                    sessions can be missing, and they arrive together on the first check of the
+                    month.
+                  </span>
+                  <span className="st-settings-hint is-caution">
+                    Recommended: every day. The default is every week, which keeps our
+                    market-data requests low enough that everyone can keep downloading.
+                  </span>
+                </div>
+
+                <div className="st-settings-field">
+                  <label className="st-settings-label">Market data cached in this browser</label>
+                  <span className="st-settings-hint">
+                    {marketSync.totalFiles === 0
+                      ? 'Nothing has been downloaded yet. The first visit fills this in the background.'
+                      : `${marketSync.loadedFiles.length} of ${marketSync.totalFiles} history files are stored here (${marketSync.plan === 'full' ? 'full history' : 'recent years only'}). Dataset date: ${marketSync.datasetDate ?? marketSync.version ?? 'unknown'}.`}
+                  </span>
                 </div>
               </div>
             )}
