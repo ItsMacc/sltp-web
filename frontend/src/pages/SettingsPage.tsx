@@ -18,7 +18,15 @@ import { readStorageReport, type StorageReport } from '../store/storageReport';
 import { DATA_PLAN_YEARS, IS_MOBILE, type DataPlanYears } from '../store/device';
 import DataPlanDialog from '../components/DataPlanDialog';
 import { Check, Copy, KeyRound, Trash2 } from 'lucide-react';
-import { listApiKeys, createApiKey, revokeApiKey, type ApiKeySummary } from '../../lib/api';
+import {
+  listApiKeys,
+  createApiKey,
+  revokeApiKey,
+  fetchOpsAccess,
+  fetchOpsReport,
+  type ApiKeySummary,
+  type OpsReport,
+} from '../../lib/api';
 import {
   readLabRunSettings,
   saveLabRunSettings,
@@ -66,7 +74,20 @@ function formatBytes(bytes: number): string {
 }
 
 export default function SettingsPage({ userId, userEmail, initialName, onProfileUpdated, onAccountDeleted }: SettingsPageProps) {
-  const [activeSubTab, setActiveSubTab] = useState<'profile' | 'preferences' | 'notifications' | 'editor' | 'lab' | 'api'>('profile');
+  const [activeSubTab, setActiveSubTab] = useState<
+    'profile' | 'preferences' | 'notifications' | 'editor' | 'lab' | 'api' | 'reports'
+  >('profile');
+
+  // Operator report. The server decides who may read it, so the tab is drawn only
+  // after /api/ops/me says yes: a hidden control that 403s is worse than no tab.
+  const [opsAccess, setOpsAccess] = useState(false);
+  const [opsReport, setOpsReport] = useState<OpsReport | null>(null);
+  const [opsLoading, setOpsLoading] = useState(false);
+  const [opsError, setOpsError] = useState<string | null>(null);
+
+  // The account's level, read from the profile row. Null until schema.sql adds
+  // the column, which is why the row is conditional rather than showing "free".
+  const [planTier, setPlanTier] = useState<string | null>(null);
 
   // API keys State
   const [apiKeys, setApiKeys] = useState<ApiKeySummary[]>([]);
@@ -135,6 +156,49 @@ export default function SettingsPage({ userId, userEmail, initialName, onProfile
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  // Who may see the operator report, and what level this account is on. Both are
+  // server facts; neither is inferred from the email in the browser.
+  useEffect(() => {
+    let alive = true;
+    void getSessionToken().then(async (token) => {
+      if (!token) return;
+      const allowed = await fetchOpsAccess(token);
+      if (alive) setOpsAccess(allowed);
+    });
+    void supabase
+      .from('users')
+      .select('tier')
+      .eq('id', userId)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (alive) setPlanTier((data?.tier as string | undefined) ?? null);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [userId]);
+
+  // The brief is only fetched when the tab is opened: it pages through every
+  // auth account and asks the gate Worker, so it is not a page-load cost.
+  const loadOpsReport = useCallback(async () => {
+    setOpsLoading(true);
+    setOpsError(null);
+    try {
+      const token = await getSessionToken();
+      if (!token) throw new Error('Sign in again to load the report.');
+      setOpsReport(await fetchOpsReport(token));
+    } catch (err) {
+      setOpsError(err instanceof Error ? err.message : 'Could not load the report.');
+    } finally {
+      setOpsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeSubTab !== 'reports' || opsReport || opsLoading) return;
+    void loadOpsReport();
+  }, [activeSubTab, opsReport, opsLoading, loadOpsReport]);
 
   // Measured once the preferences tab is on screen: walking OPFS is cheap but
   // pointless on a tab that is not showing it.
@@ -474,12 +538,195 @@ export default function SettingsPage({ userId, userEmail, initialName, onProfile
               <div className="st-settings-nav-title">API keys</div>
               <div className="st-settings-nav-desc">Use the API from your machine</div>
             </button>
+
+            {opsAccess && (
+              <button
+                type="button"
+                className={`st-settings-nav-item ${activeSubTab === 'reports' ? 'is-active' : ''}`}
+                onClick={() => { setActiveSubTab('reports'); setMessage(null); }}
+              >
+                <div className="st-settings-nav-title">Reports</div>
+                <div className="st-settings-nav-desc">Operator brief and usage</div>
+              </button>
+            )}
           </div>
 
           <div className="st-settings-card">
             {message && (
               <div className={`st-settings-alert st-settings-alert--${message.type}`}>
                 {message.text}
+              </div>
+            )}
+
+            {/* --- Operator report (admins only) --- */}
+            {activeSubTab === 'reports' && opsAccess && (
+              <div className="st-settings-section">
+                <div className="st-settings-section-heading">
+                  <span className="st-settings-step">00</span>
+                  <h2>Operator report</h2>
+                </div>
+                <div className="st-settings-divider" />
+
+                <div className="st-report-bar">
+                  <span className="st-settings-hint">
+                    {opsReport
+                      ? `Brief for ${opsReport.date} · generated ${new Date(opsReport.generated_at).toLocaleTimeString()}`
+                      : 'The same brief the daily email carries.'}
+                  </span>
+                  <div className="st-report-bar-actions">
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => void loadOpsReport()}
+                      disabled={opsLoading}
+                    >
+                      {opsLoading ? 'Reading…' : 'Refresh'}
+                    </Button>
+                    {opsReport && (
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => {
+                          void navigator.clipboard.writeText(opsReport.text);
+                          setSettingsToast('Brief copied.');
+                        }}
+                      >
+                        Copy brief
+                      </Button>
+                    )}
+                  </div>
+                </div>
+
+                {opsLoading && !opsReport && (
+                  <p className="st-report-loading">
+                    <LoaderInline /> Reading accounts and usage…
+                  </p>
+                )}
+                {opsError && <div className="st-settings-alert st-settings-alert--error">{opsError}</div>}
+
+                {opsReport && (
+                  <>
+                    <h3 className="st-report-heading">Accounts</h3>
+                    <div className="st-report-grid">
+                      {[
+                        ['Total', opsReport.accounts.total],
+                        ['New in 7 days', opsReport.accounts.new_7d],
+                        ['New in 30 days', opsReport.accounts.new_30d],
+                        ['Active in 7 days', opsReport.accounts.active_7d],
+                        ['Active in 30 days', opsReport.accounts.active_30d],
+                        ['Never signed in', opsReport.accounts.never_signed_in],
+                      ].map(([label, value]) => (
+                        <div className="st-report-stat" key={String(label)}>
+                          <span className="st-report-stat-label">{label}</span>
+                          <span className="st-report-stat-value">
+                            {typeof value === 'number' ? value.toLocaleString() : '—'}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+
+                    <h3 className="st-report-heading">Usage</h3>
+                    <div className="st-report-grid">
+                      {[
+                        ['Profiles', opsReport.usage.profiles],
+                        ['Onboarded', opsReport.usage.onboarded],
+                        ['Active API keys', opsReport.usage.api_keys],
+                        ['Deletions (30d)', opsReport.deletions.recent_30d],
+                        ['Deletions (all time)', opsReport.deletions.total],
+                      ].map(([label, value]) => (
+                        <div className="st-report-stat" key={String(label)}>
+                          <span className="st-report-stat-label">{label}</span>
+                          <span className="st-report-stat-value">
+                            {typeof value === 'number' ? value.toLocaleString() : '—'}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+
+                    {opsReport.usage.tiers && (
+                      <ul className="st-report-list">
+                        {Object.entries(opsReport.usage.tiers).map(([tier, count]) => (
+                          <li key={tier}>
+                            <span>{tier}</span>
+                            <span>{typeof count === 'number' ? count.toLocaleString() : 'unknown (no tier column yet)'}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+
+                    <h3 className="st-report-heading">Storage and Workers</h3>
+                    {!opsReport.cloudflare.configured ? (
+                      <p className="st-settings-hint">
+                        Not measured: set CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID on the backend.
+                      </p>
+                    ) : (
+                      <ul className="st-report-list">
+                        <li>
+                          <span>R2 objects</span>
+                          <span>{opsReport.cloudflare.r2?.objects?.toLocaleString() ?? 'no sample'}</span>
+                        </li>
+                        <li>
+                          <span>R2 stored</span>
+                          <span>
+                            {opsReport.cloudflare.r2?.payload_bytes
+                              ? formatBytes(opsReport.cloudflare.r2.payload_bytes)
+                              : 'no sample'}
+                          </span>
+                        </li>
+                        <li>
+                          <span>Worker requests (24h)</span>
+                          <span>
+                            {typeof opsReport.cloudflare.worker?.requests === 'number'
+                              ? opsReport.cloudflare.worker.requests.toLocaleString()
+                              : 'no sample'}
+                          </span>
+                        </li>
+                        <li>
+                          <span>Worker errors (24h)</span>
+                          <span>{opsReport.cloudflare.worker?.errors ?? '—'}</span>
+                        </li>
+                      </ul>
+                    )}
+                    {opsReport.cloudflare.error && (
+                      <p className="st-settings-hint">Cloudflare said: {opsReport.cloudflare.error}</p>
+                    )}
+
+                    {opsReport.gate && (
+                      <>
+                        <h3 className="st-report-heading">Market data gate</h3>
+                        <ul className="st-report-list">
+                          {[
+                            ['Reads used', `${String(opsReport.gate.used ?? '—')} of ${String(opsReport.gate.hardLimit ?? '—')}`],
+                            ['Requests today', `${String(opsReport.gate.requests ?? '—')} of ${String(opsReport.gate.requestLimit ?? '—')}`],
+                            ['Window resets', String(opsReport.gate.resetsAt ?? '—')],
+                            ['Refused this month', opsReport.refused?.total ?? '—'],
+                          ].map(([label, value]) => (
+                            <li key={label}>
+                              <span>{label}</span>
+                              <span>{String(value)}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </>
+                    )}
+
+                    {opsReport.health.length > 0 && (
+                      <>
+                        <h3 className="st-report-heading">Health</h3>
+                        <ul className="st-report-list">
+                          {opsReport.health.map((item) => (
+                            <li key={item.name}>
+                              <span>{item.name}</span>
+                              <span className={item.ok ? 'st-report-ok' : 'st-report-bad'}>
+                                {item.ok ? 'ok' : 'failing'} · {item.detail}
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      </>
+                    )}
+                  </>
+                )}
               </div>
             )}
 
@@ -513,6 +760,16 @@ export default function SettingsPage({ userId, userEmail, initialName, onProfile
                   <Input type="text" value={accountCreated} disabled />
                   <span className="st-settings-hint">System registration timestamp.</span>
                 </div>
+
+                {/* Read-only: the level lives on the account row, and only an
+                    admin changes it. Hidden until schema.sql adds the column. */}
+                {planTier && (
+                  <div className="st-settings-field">
+                    <label className="st-settings-label">Plan</label>
+                    <Input type="text" value={planTier.toUpperCase()} disabled />
+                    <span className="st-settings-hint">Your account level. Contact support to change it.</span>
+                  </div>
+                )}
 
                 <div className="st-settings-field is-danger">
                   <label className="st-settings-label is-danger">Danger Zone</label>
@@ -1154,7 +1411,8 @@ export default function SettingsPage({ userId, userEmail, initialName, onProfile
               </div>
             )}
 
-            <div className="st-settings-footer" hidden={activeSubTab === 'api'}>
+            {/* The report is a read: nothing on it is saved, so no footer. */}
+            <div className="st-settings-footer" hidden={activeSubTab === 'api' || activeSubTab === 'reports'}>
               <Button
                 variant="primary"
                 size="md"

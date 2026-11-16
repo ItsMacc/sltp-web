@@ -641,3 +641,105 @@
     flex: 1 1 100%;
   }
 }
+
+/* ---------- Operator report (admins) ----------
+   Reads top to bottom: numbers first, then the stores, then the health lines.
+   Every value is tabular so a column of counts lines up as digits rather than
+   as words. */
+.st-report-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-lg);
+}
+
+.st-report-bar-actions {
+  display: flex;
+  gap: var(--space-xs);
+}
+
+.st-report-loading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+.st-report-heading {
+  margin: var(--space-lg) 0 var(--space-xs);
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.st-report-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 8.5rem), 1fr));
+  gap: var(--space-xs);
+}
+
+.st-report-stat {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3xs);
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-base);
+}
+
+.st-report-stat-label {
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+}
+
+.st-report-stat-value {
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--text-lg);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.st-report-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.st-report-list li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-md);
+  padding: var(--space-2xs) 0;
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+}
+
+.st-report-list li:last-child {
+  border-bottom: 0;
+}
+
+.st-report-list li span:last-child {
+  color: var(--text-primary);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.st-report-ok {
+  color: var(--success);
+}
+
+.st-report-bad {
+  color: var(--error);
+}

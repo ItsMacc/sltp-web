@@ -565,6 +565,56 @@ export async function revokeApiKey(token: string, keyId: string): Promise<void> 
   await authedFetch(`/api/user/api-keys/${keyId}`, token, { method: 'DELETE' });
 }
 
+// -------- Operator report --------
+// Admin-only, and the server decides who that is: the browser only asks.
+export interface OpsCounts {
+  total?: number;
+  new_7d?: number;
+  new_30d?: number;
+  never_signed_in?: number;
+  active_7d?: number;
+  active_30d?: number;
+}
+
+export interface OpsReport {
+  date: string;
+  generated_at: string;
+  accounts: OpsCounts;
+  usage: {
+    profiles?: number | null;
+    onboarded?: number | null;
+    api_keys?: number | null;
+    deletions?: number | null;
+    tiers?: Record<string, number | null>;
+  };
+  deletions: { total?: number; recent_30d?: number };
+  followed_strategies: [string, number][];
+  health: { name?: string; ok?: boolean; detail?: string }[];
+  gate: Record<string, unknown> | null;
+  refused: Record<string, number | null> | null;
+  cloudflare: {
+    configured: boolean;
+    r2?: { payload_bytes?: number; metadata_bytes?: number; objects?: number; date?: string } | null;
+    worker?: { requests?: number; errors?: number; subrequests?: number } | null;
+    error?: string | null;
+  };
+  text: string;
+}
+
+/** Whether this account may see the operator report. Never throws on 403. */
+export async function fetchOpsAccess(token: string): Promise<boolean> {
+  try {
+    const data = await authedFetch('/api/ops/me', token);
+    return Boolean(data?.admin);
+  } catch {
+    return false;
+  }
+}
+
+export async function fetchOpsReport(token: string): Promise<OpsReport> {
+  return authedFetch('/api/ops/report', token);
+}
+
 /**
  * Records one sign-in's device for the security check (IP hash only).
  *
