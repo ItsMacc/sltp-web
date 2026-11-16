@@ -686,6 +686,13 @@ async function isCurrent(file: ManifestFile): Promise<boolean> {
   return actual !== null && actual === file.bytes;
 }
 
+/** What the given keys actually occupy on disk right now. */
+async function sizeOnDisk(keys: string[]): Promise<number> {
+  let total = 0;
+  for (const key of keys) total += (await fileSize(key)) ?? 0;
+  return total;
+}
+
 /** A downloaded plan file moves the "N of M" count; a sidecar never does. */
 function noteDownloaded(file: ManifestFile): void {
   if (activePlan?.includes(file.key)) markLoaded(file.key);
@@ -937,6 +944,7 @@ async function runBoot(): Promise<void> {
   if (needed.length === 0) {
     await writeVersion(settledVersion());
     setStatus({ phase: 'ready', olderDeferred: false });
+    setStatus({ bytesLoaded: await sizeOnDisk(status.loadedFiles) });
     return;
   }
 
@@ -956,12 +964,14 @@ async function runBoot(): Promise<void> {
   }
   if (isMetered()) {
     setStatus({ phase: 'ready', olderDeferred: true });
+    setStatus({ bytesLoaded: await sizeOnDisk(status.loadedFiles) });
     return;
   }
   setStatus({ phase: 'prefetch' });
   await fetchFiles(later, manifest.version);
   await writeVersion(settledVersion());
   setStatus({ phase: 'ready', olderDeferred: false });
+  setStatus({ bytesLoaded: await sizeOnDisk(status.loadedFiles) });
 }
 
 /**
@@ -987,6 +997,7 @@ export async function prefetchOlder(): Promise<void> {
   try {
     await fetchFiles(entries, manifest.version);
     setStatus({ phase: 'ready' });
+    setStatus({ bytesLoaded: await sizeOnDisk(status.loadedFiles) });
   } catch (err) {
     setStatus({
       phase: 'ready',
