@@ -693,6 +693,13 @@ async function sizeOnDisk(keys: string[]): Promise<number> {
   return total;
 }
 
+/** Ready means settled, so the cached size is re-read from the disk once the
+    downloads are done: the running counter drifts from what is really there. */
+async function finishReady(olderDeferred: boolean): Promise<void> {
+  setStatus({ phase: 'ready', olderDeferred });
+  setStatus({ bytesLoaded: await sizeOnDisk(status.loadedFiles) });
+}
+
 /** A downloaded plan file moves the "N of M" count; a sidecar never does. */
 function noteDownloaded(file: ManifestFile): void {
   if (activePlan?.includes(file.key)) markLoaded(file.key);
@@ -943,8 +950,7 @@ async function runBoot(): Promise<void> {
 
   if (needed.length === 0) {
     await writeVersion(settledVersion());
-    setStatus({ phase: 'ready', olderDeferred: false });
-    setStatus({ bytesLoaded: await sizeOnDisk(status.loadedFiles) });
+    await finishReady(false);
     return;
   }
 
@@ -959,19 +965,17 @@ async function runBoot(): Promise<void> {
   await writeVersion(settledVersion());
 
   if (later.length === 0) {
-    setStatus({ phase: 'ready', olderDeferred: false });
+    await finishReady(false);
     return;
   }
   if (isMetered()) {
-    setStatus({ phase: 'ready', olderDeferred: true });
-    setStatus({ bytesLoaded: await sizeOnDisk(status.loadedFiles) });
+    await finishReady(true);
     return;
   }
   setStatus({ phase: 'prefetch' });
   await fetchFiles(later, manifest.version);
   await writeVersion(settledVersion());
-  setStatus({ phase: 'ready', olderDeferred: false });
-  setStatus({ bytesLoaded: await sizeOnDisk(status.loadedFiles) });
+  await finishReady(false);
 }
 
 /**
@@ -986,7 +990,7 @@ export async function prefetchOlder(): Promise<void> {
     (key) => !status.loadedFiles.includes(key),
   );
   if (remaining.length === 0) {
-    setStatus({ phase: 'ready', olderDeferred: false });
+    await finishReady(false);
     return;
   }
   setStatus({ phase: 'prefetch', olderDeferred: false });
@@ -996,8 +1000,7 @@ export async function prefetchOlder(): Promise<void> {
   for (const entry of entries) countBytes(entry);
   try {
     await fetchFiles(entries, manifest.version);
-    setStatus({ phase: 'ready' });
-    setStatus({ bytesLoaded: await sizeOnDisk(status.loadedFiles) });
+    await finishReady(false);
   } catch (err) {
     setStatus({
       phase: 'ready',
