@@ -84,6 +84,9 @@ const CORS: Record<string, string> = {
   'access-control-allow-methods': 'GET, HEAD, POST, OPTIONS',
   'access-control-allow-headers': 'if-none-match, content-type',
   'access-control-expose-headers': 'etag, x-data-usage',
+  // Without this the browser zeroes transferSize for every download, which is
+  // what a phone-side audit needs to tell real traffic apart from a stale size.
+  'timing-allow-origin': '*',
 };
 
 /** One bundle carries the whole plan, but a single response that must survive
