@@ -231,10 +231,10 @@ export default function StrategyGuide() {
                 account would be worth after each one.
               </p>
               <p>
-                The chart plots that value with one candle per session, starting at 100. A
-                last reading of 124 means the account is up 24% over the period. Green means
-                the value rose that session, red means it fell, and hovering a candle shows
-                the value on that date.
+                The chart plots that value as one line from the first session to the last,
+                starting at 100. A last reading of 124 means the account is up 24% over the
+                period. Hovering or tapping a point shows the value on that date and how far
+                it moved from the session before.
               </p>
               <p>
                 Because every run starts at the same place, two strategies can be compared

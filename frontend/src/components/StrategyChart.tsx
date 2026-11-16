@@ -3,13 +3,12 @@
 import React, {
   useState,
   useMemo,
-  useRef,
-  useLayoutEffect,
   useCallback,
   useEffect,
   useSyncExternalStore,
 } from 'react'
 import './StrategyChart.css'
+import Chart, { type Bar } from './Chart'
 import TradeResults, { type TradeRecord } from './TradeResults'
 import DatePicker from '../ui/DatePicker'
 import ErrorToast from '../ui/ErrorToast'
@@ -47,18 +46,6 @@ interface BacktestApiResponse {
   trades?: Record<string, TradeRecord[]> | TradeRecord[]
   timings?: Record<string, number>
 }
-
-export interface PortfolioCandle {
-  date: string
-  open: number
-  high: number
-  low: number
-  close: number
-}
-
-const AXIS_WIDTH = 65
-const PADDING_TOP = 20
-const PADDING_BOTTOM = 30
 
 /** One backtest at a time, owned outside React.
  *
@@ -233,24 +220,6 @@ export default function StrategyChart({
     setRunJob({ strategyId: selectedStrategy, startDate, endDate })
   }, [selectedStrategy, startDate, endDate])
 
-  const containerRef = useRef<HTMLDivElement>(null)
-  const scrollRef = useRef<HTMLDivElement>(null)
-  const [width, setWidth] = useState(500)
-  const [height] = useState(420)
-
-  // A phone gets two explicit ways to use the chart. Scroll keeps the wide
-  // timeline and a sideways swipe; Candle fits the whole run on screen so a
-  // finger can read one day without fighting the horizontal scroll. The
-  // scrubber that used to sit here made the chart look like a scrollbar, so
-  // it is gone; the mode switch says what the gesture does instead.
-  const [chartMode, setChartMode] = useState<'scroll' | 'inspect'>(MOBILE ? 'scroll' : 'inspect')
-  const [tipDismissed, setTipDismissed] = useState(false)
-  const longPressRef = useRef<{ x: number; y: number; timer: number } | null>(null)
-
-  // Only the day is stored. Its x/y are derived from the current plot width,
-  // so switching between the wide and fitted charts keeps the same candle
-  // under the crosshair without a second state update.
-  const [hover, setHover] = useState<{ index: number } | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -287,16 +256,6 @@ export default function StrategyChart({
     }
   }, [initialStrategyId])
 
-  useLayoutEffect(() => {
-    const element = containerRef.current
-    if (!element) return
-    const update = () => setWidth(element.clientWidth)
-    const observer = new ResizeObserver(update)
-    observer.observe(element)
-    update()
-    return () => observer.disconnect()
-  }, [backtestResult, chartMode])
-
   const handleCloseErrors = useCallback(() => {
     setInputError(null)
     setRunJob({ error: null })
@@ -319,7 +278,6 @@ export default function StrategyChart({
     if (start !== startDate) setStartDate(start)
 
     setInputError(null)
-    setHover(null)
     // The run belongs to the module store, so leaving this page neither
     // cancels it nor forgets it.
     startRunJob(selectedStrategy, start, endDate)
@@ -328,67 +286,22 @@ export default function StrategyChart({
   const chartData = useMemo(() => backtestResult?.chart_data || [], [backtestResult])
   const rawMetrics = useMemo(() => backtestResult?.metrics || {}, [backtestResult])
 
-  const candles: PortfolioCandle[] = useMemo(() => {
-    if (!chartData || chartData.length === 0) return []
-    const list: PortfolioCandle[] = []
-
-    for (let i = 0; i < chartData.length; i++) {
-      const curr = chartData[i]
-      const prevClose = i > 0 ? chartData[i - 1].portfolio_value : curr.portfolio_value
-      const open = prevClose
-      const close = curr.portfolio_value
-
-      const high = Math.max(open, close) * (open === close ? 1.001 : 1.0005)
-      const low = Math.min(open, close) * (open === close ? 0.999 : 0.9995)
-
-      list.push({
-        date: curr.date,
-        open,
-        high,
-        low,
+  // The chart core is shared with the stock chart. Equity points become a
+  // line series with zero volume, and `fit` shows the whole run at once.
+  const equityBars: Bar[] = useMemo(() => {
+    return chartData.map((point, index) => {
+      const close = point.portfolio_value
+      const previous = index > 0 ? chartData[index - 1]!.portfolio_value : close
+      return {
+        date: point.date,
+        open: previous,
+        high: close,
+        low: close,
         close,
-      })
-    }
-    return list
+        volume: 0,
+      }
+    })
   }, [chartData])
-
-  const { minVal, maxVal, plotWidth, plotHeight } = useMemo(() => {
-    const pw = Math.max(100, width - AXIS_WIDTH)
-    const ph = Math.max(100, height - PADDING_TOP - PADDING_BOTTOM)
-
-    if (!candles || candles.length === 0) {
-      return { minVal: 0, maxVal: 100, plotWidth: pw, plotHeight: ph }
-    }
-
-    let min = Infinity
-    let max = -Infinity
-
-    for (const c of candles) {
-      if (c.low < min) min = c.low
-      if (c.high > max) max = c.high
-    }
-
-    const padding = (max - min) * 0.08 || 5
-    return {
-      minVal: Math.max(0, min - padding),
-      maxVal: max + padding,
-      plotWidth: pw,
-      plotHeight: ph,
-    }
-  }, [candles, width, height])
-
-  const getY = useCallback(
-    (val: number) => {
-      if (maxVal === minVal) return PADDING_TOP + plotHeight / 2
-      return PADDING_TOP + (1 - (val - minVal) / (maxVal - minVal)) * plotHeight
-    },
-    [minVal, maxVal, plotHeight]
-  )
-
-  const gridTicks = useMemo(() => {
-    const steps = 4
-    return Array.from({ length: steps + 1 }, (_, i) => minVal + ((maxVal - minVal) * i) / steps)
-  }, [minVal, maxVal])
 
   const orderedMetricsList = useMemo(() => {
     if (!rawMetrics || Object.keys(rawMetrics).length === 0) return []
@@ -458,84 +371,6 @@ export default function StrategyChart({
 
     return items
   }, [rawMetrics])
-
-  const inspectAt = useCallback(
-    (clientX: number, element: HTMLDivElement) => {
-      if (!candles || candles.length === 0) return
-      const rect = element.getBoundingClientRect()
-      const px = clientX - rect.left
-      if (px < 0 || px > plotWidth) {
-        setHover(null)
-        return
-      }
-      const step = plotWidth / Math.max(1, candles.length - 1)
-      const index = Math.min(candles.length - 1, Math.max(0, Math.round(px / step)))
-      setHover({ index })
-    },
-    [candles, plotWidth],
-  )
-
-  const cancelLongPress = useCallback(() => {
-    if (!longPressRef.current) return
-    window.clearTimeout(longPressRef.current.timer)
-    longPressRef.current = null
-  }, [])
-
-  useEffect(() => () => cancelLongPress(), [cancelLongPress])
-
-  const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (!MOBILE) return
-    if (chartMode === 'inspect') {
-      inspectAt(event.clientX, event.currentTarget)
-      return
-    }
-    if (event.pointerType !== 'touch') return
-
-    cancelLongPress()
-    const rect = event.currentTarget.getBoundingClientRect()
-    const px = event.clientX - rect.left
-    const step = plotWidth / Math.max(1, candles.length - 1)
-    const index = Math.min(candles.length - 1, Math.max(0, Math.round(px / step)))
-    longPressRef.current = {
-      x: event.clientX,
-      y: event.clientY,
-      timer: window.setTimeout(() => {
-        longPressRef.current = null
-        setHover({ index })
-        setChartMode('inspect')
-      }, 380),
-    }
-  }
-
-  const handlePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
-    const press = longPressRef.current
-    if (
-      press &&
-      (Math.abs(event.clientX - press.x) > 8 || Math.abs(event.clientY - press.y) > 8)
-    ) {
-      cancelLongPress()
-    }
-
-    // In Scroll mode a finger belongs to the horizontal scroll, not the
-    // crosshair. Desktop hover and Candle mode both inspect here.
-    if (MOBILE && chartMode !== 'inspect') return
-    inspectAt(event.clientX, event.currentTarget)
-  }
-
-  const handlePointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
-    cancelLongPress()
-    if (MOBILE && chartMode === 'inspect') {
-      inspectAt(event.clientX, event.currentTarget)
-    }
-  }
-
-  const hoveredCandle = hover && candles[hover.index] ? candles[hover.index] : null
-  const hoverX = hover ? hover.index * (plotWidth / Math.max(1, candles.length - 1)) : 0
-  const hoverY = hoveredCandle ? getY(hoveredCandle.close) : 0
-  const hoverDayChange =
-    hoveredCandle && hoveredCandle.open !== 0
-      ? ((hoveredCandle.close - hoveredCandle.open) / hoveredCandle.open) * 100
-      : 0
 
   return (
     <div className="strategy-card">
@@ -687,186 +522,25 @@ export default function StrategyChart({
               <article className="strategy-chart-container">
                 <div className="strategy-chart-header">
                   <h3 className="strategy-title">{backtestResult.strategy_name}</h3>
-                  {candles.length > 0 && (
+                  {chartData.length > 0 && (
                     <span className="strategy-subtext">
-                      {candles[0].date} to {candles[candles.length - 1].date}
+                      {chartData[0].date} to {chartData[chartData.length - 1].date}
                     </span>
                   )}
                 </div>
 
-                {MOBILE && (
-                  <div className="strategy-chart-mode-row">
-                    <div className="strategy-chart-mode" role="group" aria-label="Chart interaction mode">
-                      <button
-                        type="button"
-                        className={chartMode === 'scroll' ? 'is-active' : ''}
-                        aria-pressed={chartMode === 'scroll'}
-                        onClick={() => {
-                          cancelLongPress()
-                          setChartMode('scroll')
-                          setHover(null)
-                        }}
-                      >
-                        Scroll
-                      </button>
-                      <button
-                        type="button"
-                        className={chartMode === 'inspect' ? 'is-active' : ''}
-                        aria-pressed={chartMode === 'inspect'}
-                        onClick={() => {
-                          cancelLongPress()
-                          setChartMode('inspect')
-                        }}
-                      >
-                        Candle
-                      </button>
-                    </div>
-                    <span className="strategy-chart-mode-note">
-                      {chartMode === 'scroll' ? 'Swipe sideways to move' : 'Drag to read a day'}
-                    </span>
-                  </div>
-                )}
-
-                <div className="strategy-chart-frame">
-                {MOBILE && !tipDismissed && (
-                  <div className="strategy-chart-tip" role="note">
-                    <span>
-                      {chartMode === 'scroll'
-                        ? 'Tap and hold a candle to inspect it.'
-                        : 'Drag across the chart to read each day.'}
-                    </span>
-                    <button
-                      type="button"
-                      aria-label="Dismiss chart hint"
-                      onClick={() => setTipDismissed(true)}
-                    >
-                      ×
-                    </button>
-                  </div>
-                )}
-                <div
-                  className={`strategy-chart-scroll${chartMode === 'inspect' ? ' is-inspect' : ''}`}
-                  ref={scrollRef}
-                  onScroll={cancelLongPress}
-                >
-                  <div
-                    ref={containerRef}
-                    className="strategy-plot-area"
-                    style={{ height }}
-                    onPointerDown={handlePointerDown}
-                    onPointerMove={handlePointerMove}
-                    onPointerUp={handlePointerUp}
-                    onPointerCancel={cancelLongPress}
-                    onPointerLeave={() => {
-                      if (!MOBILE) setHover(null)
-                    }}
-                    onContextMenu={(event) => event.preventDefault()}
-                  >
-                    <svg width={width} height={height}>
-                      {gridTicks.map((val) => {
-                        const y = getY(val)
-                        return (
-                          <g key={val}>
-                            <line x1={0} x2={plotWidth} y1={y} y2={y} className="strategy-grid-line" />
-                            <text x={plotWidth + 8} y={y + 4} className="strategy-axis-label">
-                              {formatNumber(val)}
-                            </text>
-                          </g>
-                        )
-                      })}
-
-                      {candles.map((candle, idx) => {
-                        const step = plotWidth / Math.max(1, candles.length - 1)
-                        const x = idx * step
-                        const openY = getY(candle.open)
-                        const closeY = getY(candle.close)
-                        const highY = getY(candle.high)
-                        const lowY = getY(candle.low)
-
-                        const isBullish = candle.close >= candle.open
-                        const candleColor = isBullish ? 'var(--success)' : 'var(--error)'
-
-                        const candleWidth = Math.max(2, Math.min(8, step * 0.7))
-                        const topY = Math.min(openY, closeY)
-                        const bodyHeight = Math.max(1, Math.abs(closeY - openY))
-
-                        return (
-                          <g key={candle.date + idx}>
-                            <line x1={x} x2={x} y1={highY} y2={lowY} stroke={candleColor} strokeWidth={1} />
-                            <rect
-                              x={x - candleWidth / 2}
-                              y={topY}
-                              width={candleWidth}
-                              height={bodyHeight}
-                              fill={candleColor}
-                              rx={1}
-                            />
-                          </g>
-                        );
-                      })}
-
-                      {hover && hoveredCandle && (
-                        <g pointerEvents="none">
-                          <line
-                            x1={hoverX}
-                            x2={hoverX}
-                            y1={PADDING_TOP}
-                            y2={PADDING_TOP + plotHeight}
-                            className="strategy-crosshair"
-                          />
-                          <line
-                            x1={0}
-                            x2={plotWidth}
-                            y1={hoverY}
-                            y2={hoverY}
-                            className="strategy-crosshair"
-                          />
-                          <g className="strategy-crosshair-value">
-                            <rect
-                              x={plotWidth + 2}
-                              y={hoverY - 9}
-                              width={AXIS_WIDTH - 6}
-                              height={18}
-                              rx={3}
-                            />
-                            <text x={plotWidth + 8} y={hoverY + 4} className="strategy-axis-label is-active">
-                              {formatNumber(hoveredCandle.close)}
-                            </text>
-                          </g>
-                        </g>
-                      )}
-                    </svg>
-
-                    {hoveredCandle && hover && (
-                      <div
-                        className="strategy-tooltip"
-                        style={{
-                          left: Math.min(Math.max(8, hoverX + 12), Math.max(8, plotWidth - 160)),
-                          top: Math.max(PADDING_TOP, hoverY - 82),
-                        }}
-                      >
-                        <p className="tooltip-date">{hoveredCandle.date}</p>
-                        <dl className="tooltip-grid">
-                          <dt>Start</dt>
-                          <dd>{formatNumber(hoveredCandle.open)}</dd>
-                          <dt>End</dt>
-                          <dd className={hoveredCandle.close >= hoveredCandle.open ? 'is-up' : 'is-down'}>
-                            {formatNumber(hoveredCandle.close)}
-                          </dd>
-                          <dt>High</dt>
-                          <dd>{formatNumber(hoveredCandle.high)}</dd>
-                          <dt>Low</dt>
-                          <dd>{formatNumber(hoveredCandle.low)}</dd>
-                          <dt>Day</dt>
-                          <dd className={hoverDayChange >= 0 ? 'is-up' : 'is-down'}>
-                            {hoverDayChange >= 0 ? '+' : ''}{hoverDayChange.toFixed(2)}%
-                          </dd>
-                        </dl>
-                      </div>
-                    )}
-                  </div>
-                </div>
-                </div>
+                <Chart
+                  bars={equityBars}
+                  ticker={backtestResult.strategy_id}
+                  chartStyle="line"
+                  variant="equity"
+                  valueFormatter={formatNumber}
+                  showVolume={false}
+                  controls={false}
+                  fit
+                  flat
+                  maxVisible={Infinity}
+                />
               </article>
 
               {orderedMetricsList.length > 0 && (
