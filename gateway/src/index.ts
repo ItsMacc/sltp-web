@@ -482,6 +482,9 @@ export default {
         // A cache hit costs no R2 read, but it is still a Workers request.
         const gate = await tick(env);
         if (gate && !gate.allowed) return requestLimited(gate);
+        // A cache hit still hands bytes to a visitor, so the byte counter has
+        // to see it: counting only R2 reads described the wrong audience.
+        serve(env, Number(hit.headers.get('content-length') ?? 0));
         // The stored headers are the edge's, not the browser's.
         const hitHeaders = new Headers(hit.headers);
         hitHeaders.set('cache-control', clientControl(key));
