@@ -43,79 +43,30 @@ function starter(source: string): string {
     .join('\n');
 }
 
-const BLANK = `from sltp import Order, RebalanceFrequency, StockData, Strategy
+// The starting point a new reader sees. It is deliberately bare: the methods
+// the engine calls, one line each, and nothing to delete before writing the
+// first rule. Everything else lives in the docs, where it can be read once.
+const BLANK = `from sltp import Order, OrderSizing, PositionType, RebalanceFrequency, StockData, Strategy
 
 
 class MyStrategy(Strategy):
-    """Every hook a Strategy can implement, in the order the engine calls them."""
-
-
-    def __init__(self):
-        super().__init__()
-
-        # Identity. Both are shown by the API and the strategy registry.
-        self.name: str = "My strategy"
-        self.description: str = "One line on what this strategy does."
-
-        # Book policy: the limits the engine enforces on your positions.
-        self.MAX_POSITIONS: int = 10  # Most tickers held at once. None means no cap.
-        self.MAX_ALLOCATION_PER_TICKER: float = 0.15  # Ceiling on one ticker's share of equity. None means no ceiling.
-        self.MAX_LOTS_PER_TICKER: int = 1  # Separate entries one ticker may hold at once.
-        self.REBALANCE_FREQUENCY: RebalanceFrequency = RebalanceFrequency.MONTHLY  # NEVER, MONTHLY, QUARTERLY or YEARLY. Sets how often on_rebalance runs.
-        self.MIN_BARS_REQUIRED: int = 60  # Sessions of history a ticker needs before the hooks run for it.
-        self.LIQUIDATE_ON_END: bool = False  # True closes every open lot at the final close.
-        self.STREAMING_INDICATORS: bool = False  # True keeps indicators in a rolling cache instead of recomputing them.
-
-        # Your own parameters. Anything the hooks below read belongs here.
-        self.ALLOCATION: float = 0.10  # Share of equity one entry uses.
-        self.STOP_LOSS_PCT: float = 0.08
-        self.TAKE_PROFIT_PCT: float = 0.16
-
-
-    # -------- Required --------
-
-    def on_signal(self, ticker: str, data: StockData) -> Order | None:
-        """Runs for each eligible ticker after fills. Return an Order to queue an
-        entry for the next open, or None to leave the ticker alone."""
-        if ticker in self.open_tickers:  # Already held: do not stack entries.
-            return None
-
-        closes = data.close_price
-        if len(closes) < self.MIN_BARS_REQUIRED:
-            return None
-
-        # No setup yet. Replace this with your entry rule and return an Order:
-        #
-        #   close = float(closes[-1])
-        #   return Order(
-        #       ticker=ticker,
-        #       position_type=PositionType.LONG,
-        #       allocation=self.ALLOCATION,
-        #       sizing=OrderSizing.EQUITY,
-        #       order_date=str(data.dates[-1]),
-        #       stop_loss=round(close * (1.0 - self.STOP_LOSS_PCT), 2),
-        #       take_profit=round(close * (1.0 + self.TAKE_PROFIT_PCT), 2),
-        #   )
-        return None
-
-
-    # -------- Optional --------
-
-    def run_daily(self, current_date: str) -> None:
-        """Optional. Runs once per session, before any fill or signal. Use it for
-        per-day state that does not belong to a single ticker."""
-        pass
 
     def initialize_universe(self, current_date: str, histories: dict[str, StockData]) -> bool:
-        """Builds the names this strategy may trade. Runs before the loop, and again
-        during warmup until it returns True. Returning True with no tickers raises."""
+        # The tickers this strategy may trade.
         self.add_tickers(["AAPL", "MSFT", "NVDA", "SPY"])
         return True
 
-    def on_rebalance(self, current_date: str, histories: dict[str, StockData]) -> None:
-        """Optional. Runs after fills and before signals, only when
-        REBALANCE_FREQUENCY is due. Use it to re-rank the universe."""
+    def run_daily(self, current_date: str) -> None:
+        # Once per session, before any ticker is read.
         pass
+
+    def on_rebalance(self, current_date: str, histories: dict[str, StockData]) -> None:
+        # When REBALANCE_FREQUENCY is due.
+        pass
+
+    def on_signal(self, ticker: str, data: StockData) -> Order | None:
+        # TODO: Your strategy logic here
+        return None
 `;
 
 const ADAPTIVE_MOMENTUM = starter(adaptiveMomentumSource);
@@ -127,15 +78,15 @@ export const LAB_TEMPLATES: LabTemplate[] = [
   {
     id: 'blank',
     name: 'Strategy skeleton',
-    summary: 'Every Strategy hook in call order, with the variables you can set.',
+    summary: 'The methods the engine calls, one line each, and nothing else.',
     rule: 'Starts in workspace/main.py',
     preview: [
       'class MyStrategy(Strategy):',
-      '    def __init__(self):',
-      '    def on_signal(self, ticker, data):',
-      '    def run_daily(self, current_date):',
       '    def initialize_universe(self, current_date, histories):',
+      '    def run_daily(self, current_date):',
       '    def on_rebalance(self, current_date, histories):',
+      '    def on_signal(self, ticker, data):',
+      '        # TODO: Your strategy logic here',
     ],
     code: BLANK,
     icon: FileCode,
