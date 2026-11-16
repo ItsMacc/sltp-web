@@ -126,12 +126,13 @@ export default function Chart({
 
   useEffect(() => {
     if (bars.length === 0) return
-    const wanted = fit
-      ? Math.min(bars.length, ceiling)
-      : showAll
-        ? ceiling
-        : clamp(preferred.current, MIN_VISIBLE, ceiling)
-    preferred.current = wanted
+    // The reader's choice stays in `preferred` even while it cannot be shown.
+    // Bars arrive in batches, so the first batch may be shorter than the chosen
+    // zoom; writing the clamped count back would pin the chart to the minimum
+    // for good once the rest of the history lands.
+    const wanted =
+      fit || showAll ? Math.min(bars.length, ceiling) : clamp(preferred.current, MIN_VISIBLE, ceiling)
+    if (fit || showAll) preferred.current = wanted
     setVisibleState(wanted)
     setEnd(bars.length)
   }, [bars, showAll, fit, ceiling])
@@ -292,16 +293,22 @@ export default function Chart({
     if (!element) return
     const onWheel = (event: WheelEvent) => {
       if (fit) return
-      event.preventDefault()
       const s = stateRef.current
       const factor = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? 100 : 1
       const dx = event.deltaX * factor
       const dy = event.deltaY * factor
-      if (event.ctrlKey || Math.abs(dx) < Math.abs(dy)) {
+      // A plain wheel is the page's: scrolling down over the chart used to zoom
+      // it out to the minimum, which made the reader's zoom setting look broken.
+      // Zoom needs the modifier every other chart app asks for; dragging the
+      // chart still pans, and trackpad sideways moves pan without trapping the
+      // page's vertical scroll.
+      if (event.ctrlKey || event.metaKey) {
+        event.preventDefault()
         const next = clamp(Math.round(s.count * Math.exp(dy * 0.0018)), MIN_VISIBLE, s.ceiling)
         setVisible(next)
         setEnd((e) => clamp(e, next, s.total))
-      } else {
+      } else if (Math.abs(dx) > Math.abs(dy)) {
+        event.preventDefault()
         const barsMoved = dx / Math.max(1, s.slot)
         setEnd((e) => clamp(Math.round(e + barsMoved), s.count, s.total))
       }

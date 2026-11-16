@@ -63,6 +63,7 @@ import {
 } from '../lab/store';
 import { dropDraft, readProjectDrafts, writeDraft } from '../lab/drafts';
 import { writeCachedBacktest } from '../lab/backtestCache';
+import { readStoredUserSettings } from '../../lib/settings';
 import { getPythonState, loadPython, runPython, stopRun, subscribePython } from '../lab/pythonRunner';
 import LabResultsWindow from '../lab/LabResultsWindow';
 import LabBacktestsWindow from '../lab/LabBacktestsWindow';
@@ -191,12 +192,21 @@ const DEFAULT_EDITOR_SETTINGS: EditorSettings = {
   fontLigatures: true,
 };
 
-/** Code editor settings saved on this device, when there are any. */
+/** Code editor settings: the account's choices from Settings, with this
+    device's own copy underneath, and the defaults last. */
 function readEditorSettings(): EditorSettings {
   try {
     const raw = window.localStorage.getItem('sltp.lab.editorSettings');
-    if (!raw) return DEFAULT_EDITOR_SETTINGS;
-    return { ...DEFAULT_EDITOR_SETTINGS, ...(JSON.parse(raw) as Partial<EditorSettings>) };
+    const device = raw ? (JSON.parse(raw) as Partial<EditorSettings>) : {};
+    const account = readStoredUserSettings();
+    const chosen: Partial<EditorSettings> = {};
+    if (typeof account.editorFontSize === 'number') chosen.fontSize = account.editorFontSize;
+    if (typeof account.editorTabSize === 'number') chosen.tabSize = account.editorTabSize;
+    if (typeof account.editorWordWrap === 'boolean') chosen.wordWrap = account.editorWordWrap;
+    if (typeof account.editorMinimap === 'boolean') chosen.minimap = account.editorMinimap;
+    if (typeof account.editorLineNumbers === 'boolean') chosen.lineNumbers = account.editorLineNumbers;
+    if (typeof account.editorFontLigatures === 'boolean') chosen.fontLigatures = account.editorFontLigatures;
+    return { ...DEFAULT_EDITOR_SETTINGS, ...device, ...chosen };
   } catch {
     return DEFAULT_EDITOR_SETTINGS;
   }
