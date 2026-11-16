@@ -645,7 +645,7 @@ export default function SettingsPage({ userId, userEmail, initialName, onProfile
                 <div className="st-settings-field">
                   <label className="st-settings-label">Market data plan</label>
                   {IS_MOBILE ? (
-                    <>
+                    <div className="st-settings-plan">
                       <RadioGroup
                         name="dataPlan"
                         value={String(DATA_PLAN_YEARS)}
@@ -656,17 +656,16 @@ export default function SettingsPage({ userId, userEmail, initialName, onProfile
                         ]}
                       />
                       <span className="st-settings-hint">
-                        How much market history this phone keeps on disk. It is stored on the
-                        device, so your laptop keeps its full history either way. Changing it
-                        asks you to confirm first.
+                        How much market history this device keeps. Your account is not affected
+                        and your laptop keeps its own plan.
                       </span>
-                    </>
+                    </div>
                   ) : (
                     <span className="st-settings-hint">
-                      This device holds the full {''}
-                      <strong>28-year</strong> dataset, about 750 MB. It is built to read it
-                      efficiently, so there is nothing to trade away. A phone holds 5 or 10
-                      years instead, and chooses that on the phone.
+                      Full {''}
+                      <strong>28-year</strong> history, about 750 MB. This device reads it
+                      efficiently, so nothing has to be traded away. A phone keeps 5 or 10 years
+                      and picks that on the phone.
                     </span>
                   )}
                 </div>
@@ -684,19 +683,17 @@ export default function SettingsPage({ userId, userEmail, initialName, onProfile
                     ]}
                   />
                   <span className="st-settings-hint">
-                    How often this browser asks for fresh market data. This is only the daily
-                    Open, High, Low and Close prices we publish — not your portfolio, your
-                    projects or anything else you own, which are saved to your account as usual.
+                    How often this browser checks for new market data. It covers the daily Open,
+                    High, Low and Close prices we publish. Your portfolio and projects are saved
+                    to your account either way.
                   </span>
                   <span className="st-settings-hint">
-                    <strong>Every day:</strong> charts, strategies and the Lab always include
-                    yesterday&apos;s session; the check costs a few megabytes on the days it runs.{' '}
+                    <strong>Every day:</strong> charts, strategies and the Lab include
+                    yesterday&apos;s session, at a few megabytes on the days the check runs.{' '}
                     <strong>Every week:</strong> data can be up to {updateHorizonDays('weekly')} days
-                    old, so last week&apos;s sessions may be missing from charts, strategies and the
-                    Lab until the next check.{' '}
-                    <strong>Every month:</strong> up to {updateHorizonDays('monthly')} days of
-                    sessions can be missing, and they arrive together on the first check of the
-                    month.
+                    old until the next check.{' '}
+                    <strong>Every month:</strong> up to {updateHorizonDays('monthly')} days arrive
+                    together on the first check of the month.
                   </span>
                   <span className="st-settings-hint is-caution">
                     Recommended: every day. The default is every week, which keeps our
@@ -712,9 +709,9 @@ export default function SettingsPage({ userId, userEmail, initialName, onProfile
                       : `${marketSync.loadedFiles.length} of ${marketSync.totalFiles} history files are stored here (${marketSync.plan === 'full' ? 'full history' : 'recent years only'}), about ${Math.round(marketSync.bytesLoaded / 1_000_000)} MB. Dataset date: ${marketSync.datasetDate ?? marketSync.version ?? 'unknown'}.`}
                   </span>
                   <span className="st-settings-hint">
-                    That figure is what this site keeps in the browser. Your browser&apos;s own site-data
-                    setting may show a larger number for the same site while it still holds downloaded
-                    copies from earlier visits; clearing this site&apos;s data resets both.
+                    That figure counts what this site stores in the browser. Your browser&apos;s own
+                    site-data screen can show more while it still holds copies from earlier
+                    visits. Clearing this site&apos;s data resets both.
                   </span>
                 </div>
 
@@ -741,9 +738,9 @@ export default function SettingsPage({ userId, userEmail, initialName, onProfile
                         </span>
                       )}
                       <span className="st-settings-hint">
-                        Only the figure above is measured. The browser&apos;s own usage estimate is
-                        padded to stop sites reading your disk, and on iOS it can count the whole
-                        app container rather than this site, so it is not shown here.
+                        Only the figure above is measured. The browser&apos;s own estimate is padded
+                        so sites cannot read your disk, and on iOS it can count the whole app
+                        rather than this site.
                       </span>
                     </>
                   )}

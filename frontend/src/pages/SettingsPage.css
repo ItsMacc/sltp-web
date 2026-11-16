@@ -150,8 +150,23 @@
 .st-settings-hint {
   display: block;
   font-size: var(--text-xs);
+  line-height: 1.6;
   color: var(--text-muted);
   margin-top: 0.4rem;
+  /* Avoids the single word left alone on the last line of a narrow column. */
+  text-wrap: pretty;
+}
+
+/* The market data plan reads as one control rather than two loose radios. */
+.st-settings-plan {
+  padding: 0.75rem 0.9rem 0.85rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  background: var(--bg-surface-hover);
+}
+
+.st-settings-plan .st-settings-hint {
+  margin-top: 0.55rem;
 }
 
 /* Variant used under a checkbox, indented to clear the box itself */
