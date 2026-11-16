@@ -546,13 +546,21 @@ export default function Chart({
   }
 
   const detailTarget = chartStyle === 'line' ? 'point' : 'candle'
+  // Rounded to two digits, without ever printing "-0.00".
+  const trimZero = (value: number) => {
+    const rounded = Number(value.toFixed(2));
+    return (Object.is(rounded, -0) ? 0 : rounded).toFixed(2);
+  }
+  // A plain wheel scrolls the page now, so zoom needs the modifier the handler
+  // waits for. The hint has to name the same key.
+  const zoomModifier = /Mac|iPhone|iPad/i.test(navigator.platform || navigator.userAgent) ? '⌘' : 'Ctrl'
   const hint = variant === 'equity'
     ? isTouch
       ? 'Drag along the curve to read any session. It follows your finger.'
       : 'Hover anywhere along the curve for that session’s open, close and day.'
     : isTouch
       ? `Swipe to move, pinch or use +/− to zoom. Tap a ${detailTarget} for detail; tap empty space to dismiss.`
-      : `Scroll to zoom, drag to pan, hover a ${detailTarget} for detail${showVolume ? ' and volume' : ''}.`
+      : `${zoomModifier} + scroll to zoom, drag to pan, hover a ${detailTarget} for detail${showVolume ? ' and volume' : ''}.`
 
   return (
     <div className={`chart-card${flat ? ' is-flat' : ''}`}>
@@ -566,8 +574,8 @@ export default function Chart({
                   ${priceLabel(last.close)}
                   <span className={`chart-change ${change >= 0 ? 'is-up' : 'is-down'}`}>
                     {change >= 0 ? '+' : ''}
-                    {change.toFixed(2)} ({changePct >= 0 ? '+' : ''}
-                    {changePct.toFixed(2)}%)
+                    {change.toFixed(2)} ({changePct > 0 ? '+' : ''}
+                    {trimZero(changePct)}%)
                   </span>
                 </span>
               )}

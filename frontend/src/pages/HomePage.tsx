@@ -279,7 +279,7 @@ export default function HomePage({ onNavigate, onOpenGuide }: HomePageProps) {
           <h2 className="bento__card-title">Built on clean, reliable, high-quality data.</h2>
           <p className="bento__stat">
             <span className="bento__stat-lead">
-              With over <span className="bento__stat-value">11,500+</span> securities
+              With over <span className="bento__stat-value">11,000+</span> securities
             </span>
             <span className="bento__stat-tail">
               containing more than twenty-eight years of historical data, built for faster

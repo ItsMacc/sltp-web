@@ -94,7 +94,12 @@ const priceText = (value: number) => {
   return value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
-const signedText = (value: number, digits = 2) => `${value >= 0 ? '+' : ''}${value.toFixed(digits)}`
+// A value that rounds to zero loses its sign, so the list never shows "-0.00%".
+const signedText = (value: number, digits = 2) => {
+  const rounded = Number(value.toFixed(digits));
+  const safe = Object.is(rounded, -0) ? 0 : rounded;
+  return safe === 0 ? safe.toFixed(digits) : `${safe > 0 ? '+' : ''}${safe.toFixed(digits)}`;
+};
 
 const compactVolume = (value: number) => {
   if (value >= 1_000_000_000) return `${(value / 1_000_000_000).toFixed(1)}B`
