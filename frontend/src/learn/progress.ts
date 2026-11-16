@@ -117,6 +117,11 @@ export async function loadProgress(): Promise<LearnProgress> {
   // A cache written before this version can belong to the retired curriculum.
   // Ignoring it lets a remote reset actually clear the first visit.
   const local = cached?.version === CACHE_VERSION ? sanitize(cached) : null;
+  // Work done before making an account is keyed 'anon'. A new account adopts
+  // it rather than starting the course over, and the anonymous copy is dropped
+  // so it cannot be adopted twice.
+  const anonRaw = readCache(null);
+  const anon = anonRaw?.version === CACHE_VERSION ? sanitize(anonRaw) : null;
 
   try {
     const { data: { user } } = await supabase.auth.getUser();
@@ -143,8 +148,17 @@ export async function loadProgress(): Promise<LearnProgress> {
           lastLevel: local?.lastLevel ?? 'beginner',
         };
 
-        const merged: LearnProgress = remoteIsEmpty && local
-          ? { ...local, awards: Array.from(new Set([...cleanRemote.awards, ...local.awards])) }
+        const seed = local ?? (remoteIsEmpty ? anon : null);
+        if (seed && seed === anon && !local) {
+          try {
+            localStorage.removeItem(cacheKey(null));
+          } catch {
+            /* private mode */
+          }
+        }
+
+        const merged: LearnProgress = remoteIsEmpty && seed
+          ? { ...seed, awards: Array.from(new Set([...cleanRemote.awards, ...seed.awards])) }
           : {
               ...cleanRemote,
               awards: Array.from(new Set([...cleanRemote.awards, ...(local?.awards ?? [])])),
@@ -158,7 +172,7 @@ export async function loadProgress(): Promise<LearnProgress> {
     /* fall through to local */
   }
 
-  return local ?? { ...EMPTY };
+  return local ?? anon ?? { ...EMPTY };
 }
 
 /** Saves progress: browser always, Supabase when signed in (best effort). */
