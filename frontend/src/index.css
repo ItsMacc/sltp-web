@@ -442,6 +442,15 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 /* Boot screen: shown while the session check runs, before the shell exists. */
+/* The shell's own waiting panel: shown while a page chunk downloads, so a
+   route change never paints an empty screen. */
+.app-page-loading {
+  display: grid;
+  place-items: center;
+  min-height: 55vh;
+  padding: var(--space-2xl) var(--space-md);
+}
+
 .app-boot {
   min-height: 100vh;
   display: flex;

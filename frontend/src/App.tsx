@@ -1,5 +1,5 @@
 // App.tsx — Root shell: auth session, tab routing, legal pages
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { Suspense, lazy, useState, useEffect, useCallback, useRef } from 'react';
 import Header from './components/Header';
 import { AuthCard } from './components/AuthCard';
 import Footer from './components/Footer';
@@ -14,13 +14,18 @@ import {
   readStoredUserSettings,
 } from '../lib/settings';
 import LegalPage, { type LegalPageKind } from './pages/LegalPage';
-import DocsPage from './pages/DocsPage';
-import ResearchPage from './pages/ResearchPage';
-import StrategiesPage from './pages/StrategiesPage';
-import LabPage from './pages/LabPage';
 import { clearLabCache } from './lab/store';
-import LearnPage from './pages/LearnPage';
-import WatchlistPage from './pages/WatchlistPage';
+
+// Every page past Home is split out of the first download and fetched on the
+// click that needs it. Home stays eager: it is what a cold visit paints.
+// Without this, opening Strategies or the Lab meant staring at nothing while a
+// large chunk parsed.
+const DocsPage = lazy(() => import('./pages/DocsPage'));
+const ResearchPage = lazy(() => import('./pages/ResearchPage'));
+const StrategiesPage = lazy(() => import('./pages/StrategiesPage'));
+const LabPage = lazy(() => import('./pages/LabPage'));
+const LearnPage = lazy(() => import('./pages/LearnPage'));
+const WatchlistPage = lazy(() => import('./pages/WatchlistPage'));
 import ErrorToast from './ui/ErrorToast';
 import { Loader, LoaderOverlay } from './ui/Loader';
 import { clearRememberedLogin, sessionExpired, supabase } from '../lib/supabase';
@@ -111,27 +116,31 @@ export default function App() {
     }
 
     setLegalPage(null);
-    // The Lab and Settings hold data that belongs to an account, so a
-    // signed-out visitor gets the sign-up card instead of the page. The
-    // Watchlist is readable signed out: it is market data, not account data.
-    const needsAccount = route.tab === 'settings' || route.tab === 'lab';
-    const gated = needsAccount && !userRef.current?.id;
+    // Only Settings is behind the wall: it edits the account row itself. The
+    // Lab, the course and Research all work signed out, keeping their work in
+    // this browser until the visitor decides to sign in.
+    const gated = route.tab === 'settings' && !userRef.current?.id;
 
     setActiveTab(route.tab);
     if (gated) {
       setAuthMode('signup');
-      setAuthNotice(
-        route.tab === 'lab'
-          ? 'Create an account to open the Lab. Your projects are saved to it.'
-          : 'You must be logged in to use these features',
-      );
+      setAuthNotice('You must be logged in to use these features');
       return;
     }
     setAuthMode(null);
     setAuthNotice(null);
-    // Docs and Learn scroll themselves: Docs lands on a section heading, and
-    // Learn owns its view scroll so the badge shelf and sticky bar stay put.
-    if (route.tab !== 'docs' && route.tab !== 'learn') window.scrollTo(0, 0);
+    // Docs lands on its own section heading, so it keeps its scroll. Every
+    // other route opens at the top: a lesson must start at its title, not
+    // wherever the index was left.
+    if (route.tab !== 'docs') window.scrollTo(0, 0);
+  }, []);
+
+  // Pages can ask for the sign-in card without owning the auth state: the Lab
+  // banner does, since signing in there is optional.
+  useEffect(() => {
+    const open = () => setAuthMode('login');
+    window.addEventListener('sltp:open-signin', open);
+    return () => window.removeEventListener('sltp:open-signin', open);
   }, []);
 
   // A visit to "/" gets a real address (#/home), so history entries are never
@@ -370,6 +379,13 @@ export default function App() {
           <LegalPage page={legalPage} onBack={() => { handleTabChange(legalReturnRef.current); }} />
         ) : (
           <div key={authMode || activeTab} className="page-transition">
+            <Suspense
+              fallback={
+                <div className="app-page-loading">
+                  <Loader label="Opening…" sub="Loading this page." />
+                </div>
+              }
+            >
             {authMode ? (
               <AuthCard initialMode={authMode} onSuccess={async (u) => {
                 setUser((prev) => ({
@@ -430,6 +446,7 @@ export default function App() {
               // back to Home too, so a stale link never strands the visitor.
               <HomePage onNavigate={handleTabChange} onOpenGuide={() => openGuide()} />
             )}
+            </Suspense>
           </div>
         )}
       </main>
