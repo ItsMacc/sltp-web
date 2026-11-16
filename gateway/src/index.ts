@@ -200,6 +200,18 @@ function requestLimited(gate: Gate): Response {
   );
 }
 
+/**
+ * Bytes handed to a client, reported to the counter after the response exists.
+ * Fire and forget: a lost byte count is a rounding error, never a decision,
+ * so a slow or failing counter must not hold up a download.
+ */
+function serve(env: Env, bytes: number): void {
+  if (!(bytes > 0)) return;
+  void budget(env)
+    .fetch('https://budget/serve', { method: 'POST', body: JSON.stringify({ bytes }) })
+    .catch(() => undefined);
+}
+
 /** A reserved read that never reached R2 is given back. */
 async function release(env: Env): Promise<void> {
   try {
@@ -340,6 +352,7 @@ async function bulk(request: Request, env: Env): Promise<Response> {
   }
 
   const total = sources.reduce((sum, source) => sum + source.size, 0);
+  serve(env, total);
   if (total > BULK_MAX_BYTES) {
     return json({ error: `bundle over ${BULK_MAX_BYTES} bytes; send fewer keys` }, 413);
   }
@@ -537,6 +550,9 @@ export default {
     const response = new Response(body, { status: 200, headers });
 
     if (request.method === 'GET') {
+      // What this response hands over, so the gate can report bytes and not
+      // only reads.
+      serve(env, size);
       try {
         // Stored under the edge's own headers: a copy that kept `no-store`
         // would never be written, and every request would pay an R2 read.

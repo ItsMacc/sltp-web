@@ -14,6 +14,7 @@ import { LoaderInline, LoaderOverlay } from '../ui/Loader';
 import SuccessToast from '../ui/SuccessToast';
 import ConfirmDeleteDialog from '../ui/ConfirmDeleteDialog';
 import { SUPPORT_EMAIL } from '../data/contact';
+import { readStorageReport, type StorageReport } from '../store/storageReport';
 import { Check, Copy } from 'lucide-react';
 import { listApiKeys, createApiKey, revokeApiKey, type ApiKeySummary } from '../../lib/api';
 import {
@@ -54,6 +55,13 @@ interface SettingsPageProps {
   onAccountDeleted: () => Promise<void> | void;
 }
 
+
+/** Bytes the way a reader thinks of them: MB below a gigabyte, GB above it. */
+function formatBytes(bytes: number): string {
+  return bytes >= 1_000_000_000
+    ? `${(bytes / 1_000_000_000).toFixed(2)} GB`
+    : `${Math.round(bytes / 1_000_000)} MB`;
+}
 
 export default function SettingsPage({ userId, userEmail, initialName, onProfileUpdated, onAccountDeleted }: SettingsPageProps) {
   const [activeSubTab, setActiveSubTab] = useState<'profile' | 'preferences' | 'notifications' | 'editor' | 'lab' | 'api'>('profile');
@@ -123,6 +131,20 @@ export default function SettingsPage({ userId, userEmail, initialName, onProfile
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  // Measured once the preferences tab is on screen: walking OPFS is cheap but
+  // pointless on a tab that is not showing it.
+  const [storageReport, setStorageReport] = useState<StorageReport | null>(null);
+  useEffect(() => {
+    if (activeSubTab !== 'preferences') return;
+    let alive = true;
+    void readStorageReport().then((report) => {
+      if (alive) setStorageReport(report);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [activeSubTab]);
 
   useEffect(() => {
     async function loadAndApplySettings() {
@@ -661,6 +683,36 @@ export default function SettingsPage({ userId, userEmail, initialName, onProfile
                     setting may show a larger number for the same site while it still holds downloaded
                     copies from earlier visits; clearing this site&apos;s data resets both.
                   </span>
+                </div>
+
+                <div className="st-settings-field">
+                  <label className="st-settings-label">Measured browser storage</label>
+                  {storageReport === null ? (
+                    <span className="st-settings-hint">Measuring…</span>
+                  ) : (
+                    <>
+                      <span className="st-settings-hint">
+                        {storageReport.opfsBytes > 0
+                          ? `This site holds ${formatBytes(storageReport.opfsBytes)} on disk${
+                              storageReport.folders.length > 0
+                                ? `: ${storageReport.folders
+                                    .map((folder) => `${folder.name} ${formatBytes(folder.bytes)}`)
+                                    .join(' · ')}`
+                                : ''
+                            }.`
+                          : storageReport.unavailable ?? 'Nothing stored yet.'}
+                      </span>
+                      {storageReport.usageBytes !== null && (
+                        <span className="st-settings-hint">
+                          The browser counts {formatBytes(storageReport.usageBytes)}
+                          {storageReport.quotaBytes !== null
+                            ? ` of ${formatBytes(storageReport.quotaBytes)} allowed for this site`
+                            : ''}
+                          .
+                        </span>
+                      )}
+                    </>
+                  )}
                 </div>
               </div>
             )}

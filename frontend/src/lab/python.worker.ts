@@ -830,6 +830,8 @@ async function boot(): Promise<void> {
   let marketError: string | null = null;
   /** Wheels this boot installed, so the OPFS copy holds exactly them. */
   const keepWheels: string[] = [];
+  /** Why completion is missing, when it is. Silence hid a broken analyser. */
+  let analyzerError: string | null = null;
   try {
     post({ type: 'status', text: 'Installing numpy…' });
     // python-dateutil ships in the Pyodide distribution, the same way numpy
@@ -864,8 +866,11 @@ async function boot(): Promise<void> {
       // WHEELS/ is shared with the Research worker; keep only the builds this
       // Lab pins so old releases do not sit in the cache forever.
       await pruneWheels(keepWheels);
-    } catch {
-      /* the editor falls back to plain suggestions */
+    } catch (error) {
+      // The editor still works with plain suggestions, but the reason is kept:
+      // an analyser that failed to install used to look exactly like one that
+      // had nothing to say.
+      analyzerError = error instanceof Error ? error.message : String(error);
     }
   }
 
@@ -898,7 +903,10 @@ async function boot(): Promise<void> {
     version: String(instance.runPython('python_version')),
     engine: engineReady,
     market: marketReady,
-    warning: engineError ?? marketError,
+    warning:
+      engineError ??
+      marketError ??
+      (analyzerError ? `Editor analysis unavailable: ${analyzerError}` : null),
     cache: cacheMounted,
   });
 }

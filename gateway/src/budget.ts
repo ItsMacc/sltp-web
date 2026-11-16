@@ -43,6 +43,8 @@ interface Stored {
   used: number;
   day: string;
   requests: number;
+  /** Bytes handed to clients this window: what a device actually downloaded. */
+  bytes?: number;
   refused?: Refused;
   devices?: string[];
 }
@@ -98,6 +100,7 @@ export class Budget {
   private used = 0;
   private day = '';
   private requests = 0;
+  private bytes = 0;
   private unflushed = 0;
   private refused: Refused = { ...EMPTY_REFUSED };
   /** Short hashes of devices that downloaded at least one file this window. */
@@ -114,6 +117,7 @@ export class Budget {
         this.used = stored.used;
         this.day = stored.day;
         this.requests = stored.requests;
+        this.bytes = stored.bytes ?? 0;
         this.refused = { ...EMPTY_REFUSED, ...(stored.refused ?? {}) };
         for (const id of stored.devices ?? []) this.devices.add(id);
       }
@@ -149,6 +153,22 @@ export class Budget {
       this.unflushed += 1;
       if (this.unflushed >= FLUSH_TICKS) await this.flush();
       return this.json(this.gate(now, true));
+    }
+
+    // Bytes actually handed to a visitor. Reported after the response was
+    // built, so it answers "how much did this device download" — the question
+    // read counts cannot answer.
+    if (url.pathname === '/serve' && request.method === 'POST') {
+      const body = (await request.json().catch(() => ({}))) as { bytes?: unknown };
+      const bytes = typeof body.bytes === 'number' && Number.isFinite(body.bytes) ? body.bytes : 0;
+      if (bytes > 0) {
+        this.bytes += Math.min(bytes, 1e12);
+        this.unflushed += 1;
+        // Batched like requests: losing a batch of byte counts to an eviction
+        // costs a rounding error, not a decision.
+        if (this.unflushed >= FLUSH_TICKS) await this.flush();
+      }
+      return this.json({ bytes: this.bytes });
     }
 
     if (url.pathname !== '/reserve' || request.method !== 'POST') {
@@ -210,6 +230,7 @@ export class Budget {
     if (this.window !== id) {
       this.window = id;
       this.used = 0;
+      this.bytes = 0;
       this.refused = { ...EMPTY_REFUSED };
       this.devices.clear();
     }
@@ -227,6 +248,7 @@ export class Budget {
       used: this.used,
       day: this.day,
       requests: this.requests,
+      bytes: this.bytes,
       refused: this.refused,
       devices: this.devices.size > 0 ? [...this.devices] : undefined,
     };
@@ -245,6 +267,7 @@ export class Budget {
     return {
       window: windowId(now),
       used: this.used,
+      bytesServed: this.bytes,
       existingLimit: EXISTING_LIMIT,
       hardLimit: HARD_LIMIT,
       requests: this.requests,

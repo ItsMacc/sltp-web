@@ -310,6 +310,11 @@ export default function Chart({
     return () => element.removeEventListener('wheel', onWheel)
   }, [fit, setVisible])
 
+  // The equity curve is one fitted plot of the whole run: there is no window
+  // to pan and a candle is two pixels wide, so a finger scrubs it instead of
+  // trying to hit a bar.
+  const scrub = variant === 'equity'
+
   const dragRef = useRef<{ x: number; end: number } | null>(null)
   const [dragging, setDragging] = useState(false)
   // A finger that has not travelled yet is a tap; once it moves it is a pan.
@@ -383,6 +388,15 @@ export default function Chart({
         if (Math.abs(event.clientX - touch.x) > 6 || Math.abs(event.clientY - touch.y) > 6) {
           touch.moved = true
         }
+      }
+
+      // Scrubbing: the nearest session follows the finger, so the value is
+      // readable while dragging instead of only after a lift on a bar that was
+      // never big enough to hit.
+      if (scrub && windowData.length > 0 && px <= plotWidth) {
+        const index = clamp(Math.floor(px / slot), 0, windowData.length - 1)
+        setHover({ index, x: index * slot + slot / 2, y: py })
+        return
       }
 
       if (fit) return
@@ -480,10 +494,6 @@ export default function Chart({
   const hoverIndex = hover && hover.index < windowData.length ? hover.index : null
   const activeIndex = hoverIndex ?? (pinnedIndex >= 0 ? pinnedIndex : null)
   const activeBar = activeIndex !== null ? windowData[activeIndex] : undefined
-  // An equity curve's two anchors, so a tooltip can say where the run started
-  // and where it finished without the reader hunting for the ends.
-  const equityStart = bars.length > 0 ? bars[0].close : 0
-  const equityEnd = bars.length > 0 ? bars[bars.length - 1].close : 0
   const isTouch =
     typeof window !== 'undefined' &&
     window.matchMedia('(pointer: coarse), (max-width: 47.999rem)').matches
@@ -531,8 +541,8 @@ export default function Chart({
   const detailTarget = chartStyle === 'line' ? 'point' : 'candle'
   const hint = variant === 'equity'
     ? isTouch
-      ? `Tap a ${detailTarget} for the value. Tap empty space to dismiss.`
-      : `Hover a ${detailTarget} for that session’s value.`
+      ? 'Drag along the curve to read any session. It follows your finger.'
+      : 'Hover anywhere along the curve for that session’s open, close and day.'
     : isTouch
       ? `Swipe to move, pinch or use +/− to zoom. Tap a ${detailTarget} for detail; tap empty space to dismiss.`
       : `Scroll to zoom, drag to pan, hover a ${detailTarget} for detail${showVolume ? ' and volume' : ''}.`
@@ -644,12 +654,10 @@ export default function Chart({
               <p className="chart-tooltip-date">{activeBar.date}</p>
               {variant === 'equity' ? (
                 <dl className="chart-tooltip-grid">
-                  <dt>Value</dt>
-                  <dd>{valueFormatter(activeBar.close)}</dd>
                   <dt>Start</dt>
-                  <dd>{valueFormatter(equityStart)}</dd>
+                  <dd>{valueFormatter(activeBar.open)}</dd>
                   <dt>End</dt>
-                  <dd>{valueFormatter(equityEnd)}</dd>
+                  <dd>{valueFormatter(activeBar.close)}</dd>
                   <dt>Day</dt>
                   <dd className={activeBar.close >= activeBar.open ? 'is-up' : 'is-down'}>
                     {activeBar.open !== 0

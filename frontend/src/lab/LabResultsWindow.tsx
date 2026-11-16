@@ -238,10 +238,10 @@ function EquityChart({ result, fileName }: { result: LabBacktestPayload; fileNam
 
   const hoverPoint = hover === null ? null : result.equity[hover] ?? null;
   const hoverBenchmark = hover === null ? null : benchmarkValues[hover];
-  // The two ends of the curve, so the tooltip carries the whole run's span
-  // without the reader panning to either edge.
-  const equityStart = result.equity[0]?.value ?? 0;
-  const equityEnd = result.equity.length > 0 ? result.equity[result.equity.length - 1].value : 0;
+  // The session being read, not the whole run: the curve is drawn from one
+  // close to the next, so the previous session's close is where this day
+  // opened and the hovered value is where it finished.
+  const dayStart = hover !== null && hover > 0 ? result.equity[hover - 1]?.value ?? null : null;
 
   const handlePointerMove = (event: ReactPointerEvent<SVGSVGElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
@@ -354,10 +354,10 @@ function EquityChart({ result, fileName }: { result: LabBacktestPayload; fileNam
               </span>
             )}
             <span className="lab-results-tip-row is-anchor">
-              <span>Start {equityStart.toFixed(2)}</span>
+              <span>Start {dayStart !== null ? dayStart.toFixed(2) : '—'}</span>
             </span>
             <span className="lab-results-tip-row is-anchor">
-              <span>End {equityEnd.toFixed(2)}</span>
+              <span>End {hoverPoint.value.toFixed(2)}</span>
             </span>
           </div>
         )}

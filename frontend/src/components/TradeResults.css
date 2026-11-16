@@ -156,6 +156,14 @@
     padding: var(--space-md);
   }
 
+  /* A filled badge is a block of colour in a row this narrow. The word carries
+     the meaning, so on a phone only the text stays coloured. Scoped through
+     the container so it outranks the variant fills above. */
+  .trade-results-container .trade-badge {
+    padding: 0;
+    background-color: transparent;
+  }
+
   .trade-table th,
   .trade-table td {
     padding: var(--space-sm);
