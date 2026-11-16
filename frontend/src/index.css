@@ -103,10 +103,11 @@
   --space-2xl: 4rem;
 
   /* Typography */
-  --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
-  /* Interface face for data-heavy screens. It is the docs face on purpose:
-     one family across the app, so a page cannot look like a different site. */
-  --font-ui: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  /* One family for the whole app, including the docs. The serif started as the
+     wordmark only; it is now the text face, so a page cannot look like a
+     different site from the next one. Code stays in the mono face. */
+  --font-sans: 'Instrument Serif', Georgia, serif;
+  --font-ui: 'Instrument Serif', Georgia, serif;
   --font-heading: 'Instrument Serif', Georgia, serif;
   --font-mono: 'JetBrains Mono', ui-monospace, monospace;
 
@@ -262,6 +263,15 @@ body {
   min-height: 100vh;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
+}
+
+/* Form controls do not inherit the page font by default, and a button left on the
+   UA stack is the one place the old sans could still appear. */
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
 }
 
 /* iOS Safari zooms the whole page when a field under 16px takes focus, and the
