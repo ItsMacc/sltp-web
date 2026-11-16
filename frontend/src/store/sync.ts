@@ -930,8 +930,12 @@ async function runBoot(): Promise<void> {
     needed.push(entry);
   }
 
+  // A 404 mid-download refreshes the manifest, so the version to stamp is the
+  // one the cache holds now, not the one this boot started with.
+  const settledVersion = (): string => manifestCache?.version ?? manifest.version;
+
   if (needed.length === 0) {
-    await writeVersion(manifest.version);
+    await writeVersion(settledVersion());
     setStatus({ phase: 'ready', olderDeferred: false });
     return;
   }
@@ -944,7 +948,7 @@ async function runBoot(): Promise<void> {
 
   setStatus({ phase: 'priority' });
   await fetchFiles(first, manifest.version);
-  await writeVersion(manifest.version);
+  await writeVersion(settledVersion());
 
   if (later.length === 0) {
     setStatus({ phase: 'ready', olderDeferred: false });
@@ -956,6 +960,7 @@ async function runBoot(): Promise<void> {
   }
   setStatus({ phase: 'prefetch' });
   await fetchFiles(later, manifest.version);
+  await writeVersion(settledVersion());
   setStatus({ phase: 'ready', olderDeferred: false });
 }
 
