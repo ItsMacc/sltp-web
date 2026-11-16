@@ -410,6 +410,56 @@ export async function prefetchLabProjects(_projectIds: string[]): Promise<void> 
   return;
 }
 
+/**
+ * What a visitor made before signing in, shaped for the account it is moving
+ * to. Null when there is nothing to carry.
+ */
+export interface GuestLabSnapshot {
+  workspaces: {
+    name: string;
+    projectId: string;
+    files: { path: string; content: string }[];
+    settings: Record<string, unknown> | null;
+  }[];
+  backtests: { projectId: string; name: string; payload: unknown }[];
+}
+
+export function readGuestLab(): GuestLabSnapshot | null {
+  const doc = read();
+  if (!doc.workspaces.length && !doc.backtests.length) return null;
+  return {
+    workspaces: doc.workspaces.map((workspace) => {
+      const project = doc.projects[workspace.project_id];
+      return {
+        name: workspace.name,
+        projectId: workspace.project_id,
+        files: project ? project.files.map((file) => ({ path: file.name, content: file.content })) : [],
+        settings: project?.settings ?? null,
+      };
+    }),
+    backtests: doc.backtests.map((record) => ({
+      projectId: record.project_id,
+      name: record.name,
+      payload: record.payload,
+    })),
+  };
+}
+
+/**
+ * Forgets one guest workspace once the account has its copy.
+ *
+ * Carrying is done piece by piece for exactly this reason: a workspace that
+ * landed is pruned straight away, so a retry after a failure creates the rest
+ * instead of a second copy of everything that already arrived.
+ */
+export function removeGuestWorkspace(projectId: string): void {
+  const doc = read();
+  doc.workspaces = doc.workspaces.filter((item) => item.project_id !== projectId);
+  delete doc.projects[projectId];
+  doc.backtests = doc.backtests.filter((item) => item.project_id !== projectId);
+  write(doc);
+}
+
 /** Dropped on sign-out: a guest Lab belongs to the visitor, not the account. */
 export function clearGuestLab(): void {
   try {

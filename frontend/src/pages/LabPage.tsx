@@ -266,6 +266,15 @@ export default function LabPage({ onNavigate }: LabPageProps) {
     if (!urlWorkspaceId || workspaces.length === 0) void loadWorkspaces();
   }, [urlWorkspaceId, loadWorkspaces, workspaces.length]);
 
+  // A visitor's work is copied into the account just after sign-in, which can
+  // land after this list was drawn. Re-reading then is what makes the work
+  // appear, instead of looking like it was left behind.
+  useEffect(() => {
+    const reload = () => void loadWorkspaces();
+    window.addEventListener('sltp:lab-carry', reload);
+    return () => window.removeEventListener('sltp:lab-carry', reload);
+  }, [loadWorkspaces]);
+
   // Warm every project while the reader is still on the Lab home: the file
   // tree and backtest list land in the snapshot cache before a workspace is
   // opened, so the editor opens without another API wait.

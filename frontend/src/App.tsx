@@ -27,6 +27,8 @@ const LabPage = lazy(() => import('./pages/LabPage'));
 const LearnPage = lazy(() => import('./pages/LearnPage'));
 const WatchlistPage = lazy(() => import('./pages/WatchlistPage'));
 import ErrorToast from './ui/ErrorToast';
+import SuccessToast from './ui/SuccessToast';
+import { carryGuestLab } from './lab/carryGuest';
 import { Loader, LoaderOverlay } from './ui/Loader';
 import { clearRememberedLogin, sessionExpired, supabase } from '../lib/supabase';
 import { bootMarketSync, useMarketSyncStatus } from './store';
@@ -204,6 +206,31 @@ export default function App() {
     syncsRef.current.set(userId, run);
     return run;
   }, []);
+
+  /** Names what moved when a visitor's Lab work lands in their new account. */
+  const [carryNotice, setCarryNotice] = useState<string | null>(null);
+
+  // Work done in the Lab before signing in belongs to the account from now on.
+  // This runs from an effect, not from inside the auth callback: requesting the
+  // session there can wait on the client's own lock and never settle. The copy
+  // is dropped only after every piece has landed.
+  useEffect(() => {
+    if (!user?.id) return;
+    void carryGuestLab()
+      .then((carried) => {
+        if (!carried || carried.workspaces + carried.backtests === 0) return;
+        const parts = [
+          `${carried.workspaces} workspace${carried.workspaces === 1 ? '' : 's'}`,
+          carried.backtests > 0
+            ? `${carried.backtests} backtest${carried.backtests === 1 ? '' : 's'}`
+            : null,
+        ].filter(Boolean);
+        setCarryNotice(`${parts.join(' and ')} moved into your account.`);
+        // The Lab may already be on screen with the list it had a moment ago.
+        window.dispatchEvent(new Event('sltp:lab-carry'));
+      })
+      .catch(() => undefined);
+  }, [user?.id]);
 
   // Market data downloads itself in the background from the first visit: the
   // recent eras land in OPFS while the visitor reads, so charts open warm.
@@ -453,6 +480,10 @@ export default function App() {
 
       {authNotice && (
         <ErrorToast message={authNotice} onClose={() => setAuthNotice(null)} />
+      )}
+
+      {carryNotice && (
+        <SuccessToast message={carryNotice} onClose={() => setCarryNotice(null)} />
       )}
 
       {/* The gate closed the month (or the day). Its words are the same ones
