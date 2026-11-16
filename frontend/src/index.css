@@ -239,6 +239,9 @@
 html {
   font-size: 100%;
   -webkit-text-size-adjust: 100%;
+  /* The canvas, not just the body: anything painted before #root fills in
+     (a reload after a data plan switch, most of all) would otherwise be white. */
+  background-color: var(--bg-canvas);
 }
 
 /* Clip stray horizontal overflow so a wide child can never scroll the page */
