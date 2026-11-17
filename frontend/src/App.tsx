@@ -26,8 +26,6 @@ const StrategiesPage = lazy(() => import('./pages/StrategiesPage'));
 const LabPage = lazy(() => import('./pages/LabPage'));
 const LearnPage = lazy(() => import('./pages/LearnPage'));
 const WatchlistPage = lazy(() => import('./pages/WatchlistPage'));
-// Hidden timing terminal at #/bench: no nav entry, no links. See BenchPage.
-const BenchPage = lazy(() => import('./pages/BenchPage'));
 import ErrorToast from './ui/ErrorToast';
 import SuccessToast from './ui/SuccessToast';
 import { carryGuestLab } from './lab/carryGuest';
@@ -504,8 +502,6 @@ export default function App() {
               // Projects are read from Turso for the signed-in account; Python
               // itself runs in the browser worker.
               <LabPage onNavigate={handleTabChange} />
-            ) : activeTab === 'bench' ? (
-              <BenchPage />
             ) : activeTab === 'learn' ? (
               <LearnPage />
             ) : (
