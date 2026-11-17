@@ -20,11 +20,12 @@ There is no separate index.json.
 After the nightly run, add this to fail the night that learned nothing:
   ../.venv/bin/python scripts/daily_r2_update.py --check-fresh
 
-Yearly chore (run each January after the year settles):
+Yearly chore, now automatic: on the first run after New Year the tail holds
+the finished year plus the first bars of the new one, and main() folds the old
+year into MARKET_DAILY/market_data_<year>.bin before it writes anything —
+creating that file if the year has never been folded before. To do it by hand:
+  ../.venv/bin/python scripts/daily_r2_update.py --fold-completed
   ../.venv/bin/python scripts/daily_r2_update.py --fold-year 2026
-moves the tail's rows from that completed calendar year into
-MARKET_DAILY/market_data_2026.bin, rewrites the tail with the remaining
-rows, and updates both manifest entries plus the version.
 
 Stdlib SigV4 for R2; yfinance + pandas + pyarrow for data. Idempotent.
 """
@@ -179,7 +180,49 @@ def check_fresh(tolerance_days: int = 0) -> int:
     return 0
 
 
+def completed_years_in_tail(first_session: str, last_session: str) -> list[int]:
+    """Finished calendar years the tail is still holding, oldest first.
+
+    A year is foldable only once the tail also carries a row from a later year,
+    which is exactly the night after New Year's: it keeps the fold from leaving
+    an empty tail over the holiday, when there is no new bar to anchor it.
+    """
+    first, last = date.fromisoformat(first_session), date.fromisoformat(last_session)
+    return list(range(first.year, last.year))
+
+
+def fold_completed_years() -> int:
+    """The once-a-year chore, called by main() before it touches the tail."""
+    manifest = json.loads(_s3("GET", MANIFEST_KEY).decode())
+    entry = next((e for e in manifest["files"] if e["key"] == TAIL_KEY), None)
+    if entry is None:
+        return 0
+    for year in completed_years_in_tail(entry["first_session"], entry["last_session"]):
+        print(f"the tail still carries {year}; folding it into its own file", flush=True)
+        status = fold_year(year)
+        if status != 0:
+            return status
+    return 0
+
+
+def _done(fold_error: str | None) -> int:
+    """Exit code for a night that has finished writing: a fold failure still stings."""
+    if fold_error:
+        raise RuntimeError(fold_error)
+    return 0
+
+
 def main() -> int:
+    # January's chore first, so the night's bars land in a tail that holds only
+    # the new year. A failure here must not cost the night's data: the update
+    # still runs and the error is raised at the end, which mails the operator.
+    fold_error: str | None = None
+    try:
+        if fold_completed_years() != 0:
+            fold_error = "folding a completed year failed; see the log above"
+    except Exception as exc:  # noqa: BLE001 - reported after the update
+        fold_error = f"folding a completed year failed: {exc}"
+
     manifest = json.loads(_s3("GET", MANIFEST_KEY).decode())
     old, entry, header = _read_tail(manifest)
     old_last = (header or {}).get("last_session") or entry["last_session"]
@@ -256,13 +299,13 @@ def main() -> int:
 
     if not frames:
         print("no new bars — R2 already current, nothing written.")
-        return 0
+        return _done(fold_error)
     new = pd.concat(frames, ignore_index=True)
     new["Date"] = new["Date"].astype("int32")
     new_max = _code_to_date(int(new["Date"].max()))
     if new_max <= old_last:
         print(f"no sessions newer than {old_last} — nothing written.")
-        return 0
+        return _done(fold_error)
     print(f"downloaded sessions through {new_max}", flush=True)
 
     merged = (pd.concat([old[COLUMNS], new[COLUMNS]], ignore_index=True)
@@ -328,7 +371,7 @@ def main() -> int:
     assert ventry["bytes"] == len(blob) and ventry["last_session"] == new_max
     print(f"Done: version {vtext}, tail {ventry['first_session']} -> {ventry['last_session']}, "
           f"{ventry['rows']} rows, {ventry['bytes']} bytes. 3 writes total.", flush=True)
-    return 0
+    return _done(fold_error)
 
 
 # A nightly cron job fails unseen, so a crash mails the operator through
@@ -347,17 +390,28 @@ def _alert_admin() -> None:
 
 
 def fold_year(year: int) -> int:
-    """Move the tail's rows from one completed year into its flat year file."""
+    """Move the tail's rows from one completed year into its flat year file.
+
+    The year file is created when it does not exist yet, which is what makes
+    the yearly chore self-sustaining: the tail carries the whole open year, so
+    the first fold of a year writes that year's file from scratch and every
+    January after that merely extends one.
+    """
     manifest = json.loads(_s3("GET", MANIFEST_KEY).decode())
     year_key = f"MARKET_DAILY/market_data_{year}.bin"
     yentry = next((e for e in manifest["files"] if e["key"] == year_key), None)
-    if yentry is None:
-        print(f"no {year_key} in the manifest — the bucket has not flipped to year files yet.")
-        return 2
     tentry = next(e for e in manifest["files"] if e["key"] == TAIL_KEY)
 
-    ydf, _ = read_flat_bytes(_s3("GET", year_key))
     tdf, _ = read_flat_bytes(_s3("GET", TAIL_KEY))
+    if yentry is None:
+        # An empty slice of the tail, so the frame already carries the right
+        # dtypes and columns for the concat below.
+        ydf = tdf.iloc[0:0]
+        yentry = {"key": year_key, "row_groups": 0}
+        manifest["files"].append(yentry)
+        print(f"creating {year_key} from the tail's {year} rows", flush=True)
+    else:
+        ydf, _ = read_flat_bytes(_s3("GET", year_key))
     print(f"year file: {len(ydf)} rows; tail: {len(tdf)} rows", flush=True)
 
     start_code = int(register(np.array([f"{year}-01-01"]))[0])
@@ -425,6 +479,12 @@ if __name__ == "__main__":
             tolerance = int(sys.argv[pos + 1])
         try:
             sys.exit(check_fresh(tolerance))
+        except Exception:
+            _alert_admin()
+            raise
+    if "--fold-completed" in sys.argv:
+        try:
+            sys.exit(fold_completed_years())
         except Exception:
             _alert_admin()
             raise
