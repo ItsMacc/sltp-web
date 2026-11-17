@@ -5,7 +5,7 @@
 // shared placeholder. The pre-trim five-card version (with Watchlist and
 // Docs) lives on the backup-before-trim branch.
 import { type ComponentType, useLayoutEffect, useRef, useState } from 'react';
-import { ArrowRight, FlaskConical, GraduationCap, Layers, LineChart, Radar } from 'lucide-react';
+import { ArrowDown, ArrowRight, FlaskConical, GraduationCap, Layers, LineChart, Radar } from 'lucide-react';
 
 function GithubIcon({ size = 18, className }: { size?: number; className?: string }) {
   return (
@@ -210,6 +210,15 @@ const BENTO_MINIS: { title: string; text: string; code?: string }[] = [
 ];
 
 export default function HomePage({ onNavigate, onOpenGuide }: HomePageProps) {
+  // The hero's main action answers itself one screen down: the tools section is
+  // where SLTP explains what it does. A reader who asked for reduced motion gets
+  // the jump without the animation.
+  function scrollToTools() {
+    const target = document.getElementById('home-tools');
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    target?.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'start' });
+  }
+
   return (
     <div className="home-page">
       <section className="home-hero">
@@ -222,9 +231,9 @@ export default function HomePage({ onNavigate, onOpenGuide }: HomePageProps) {
           </p>
 
           <div className="home-hero-actions">
-            <Button variant="primary" size="lg" onClick={() => onNavigate('strategies')}>
-              Browse the strategies
-              <ArrowRight size={18} className="home-btn-icon" />
+            <Button variant="primary" size="lg" onClick={scrollToTools}>
+              See what SLTP does
+              <ArrowDown size={18} className="home-btn-icon" />
             </Button>
             <Button
               variant="link"
@@ -305,7 +314,7 @@ export default function HomePage({ onNavigate, onOpenGuide }: HomePageProps) {
         </a>
       </section>
 
-      <section className="home-tools" aria-labelledby="home-tools-title">
+      <section className="home-tools" id="home-tools" aria-labelledby="home-tools-title">
         <header className="home-tools-head">
           <h2 id="home-tools-title" className="home-tools-title">See what SLTP can do, and how you can use it</h2>
           <p className="home-tools-lede">SLTP puts your entire investment and trading workflow in one place. Everything you need to analyze markets, test ideas, and track strategies lives right here. Beyond core research and strategies, we also give you dedicated spaces to build and expand your skills. Whether you are completely new to quantitative finance or running advanced models, the platform is designed to be easy to pick up from day one.

@@ -747,42 +747,16 @@ export default function SettingsPage({ userId, userEmail, initialName, onProfile
                       ? 'Nothing has been downloaded yet. The first visit fills this in the background.'
                       : `${marketSync.loadedFiles.length} of ${marketSync.totalFiles} history files are stored here (${marketSync.plan === 'full' ? 'full history' : 'recent years only'}), about ${Math.round(marketSync.bytesLoaded / 1_000_000)} MB. Dataset date: ${marketSync.datasetDate ?? marketSync.version ?? 'unknown'}.`}
                   </span>
+                  {storageReport?.quotaBytes != null && (
+                    <span className="st-settings-hint">
+                      The browser allows this site up to {formatBytes(storageReport.quotaBytes)} more data.
+                    </span>
+                  )}
                   <span className="st-settings-hint">
                     That figure counts what this site stores in the browser. Your browser&apos;s own
                     site-data screen can show more while it still holds copies from earlier
                     visits. Clearing this site&apos;s data resets both.
                   </span>
-                </div>
-
-                <div className="st-settings-field">
-                  <label className="st-settings-label">Measured browser storage</label>
-                  {storageReport === null ? (
-                    <span className="st-settings-hint">Measuring…</span>
-                  ) : (
-                    <>
-                      <span className="st-settings-hint">
-                        {storageReport.opfsBytes > 0
-                          ? `This site holds ${formatBytes(storageReport.opfsBytes)} on disk${
-                              storageReport.folders.length > 0
-                                ? `: ${storageReport.folders
-                                    .map((folder) => `${folder.name} ${formatBytes(folder.bytes)}`)
-                                    .join(' · ')}`
-                                : ''
-                            }.`
-                          : storageReport.unavailable ?? 'Nothing stored yet.'}
-                      </span>
-                      {storageReport.quotaBytes !== null && (
-                        <span className="st-settings-hint">
-                          The browser allows this site up to {formatBytes(storageReport.quotaBytes)}.
-                        </span>
-                      )}
-                      <span className="st-settings-hint">
-                        Only the figure above is measured. The browser&apos;s own estimate is padded
-                        so sites cannot read your disk, and on iOS it can count the whole app
-                        rather than this site.
-                      </span>
-                    </>
-                  )}
                 </div>
               </div>
             )}
