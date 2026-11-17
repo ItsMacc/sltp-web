@@ -10,7 +10,10 @@ import { useEffect } from 'react';
 const SITE = 'SLTP';
 
 const PAGE_TITLES: Record<string, string> = {
-  home: `${SITE} — Stock market research platform`,
+  // Kept word for word in step with index.html: the static title is what a
+  // crawler sees first, and this one replaces it on mount. Two different
+  // strings for the same page is one signal contradicting another.
+  home: `${SITE} - Market Research, Backtests and Investing Insights`,
   docs: `Docs — ${SITE}`,
   research: `Research — ${SITE}`,
   strategies: `Strategies — ${SITE}`,

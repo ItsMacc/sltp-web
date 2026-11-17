@@ -5,7 +5,65 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" type="image/svg+xml" href="/logo.svg" />
     <meta name="theme-color" content="#17161f" />
-    <title>SLTP</title>
+
+    <!-- Search: one page, one identity. Everything below is what Google reads
+         to decide the site name and the title link, so the words have to match
+         the ones on the page: brand first, then what the product is. -->
+    <title>SLTP - Market Research, Backtests and Investing Insights</title>
+    <meta
+      name="description"
+      content="SLTP is a market research platform for US stocks: backtest trading strategies on 25 years of daily data, study charts and metrics, and keep up with the tickers you follow."
+    />
+    <link rel="canonical" href="https://sltp-app.com/" />
+    <meta name="robots" content="index,follow" />
+
+    <!-- Link previews. og:site_name is one of the signals behind the site name
+         Google shows above a result, so it says exactly what the schema says. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="SLTP" />
+    <meta property="og:title" content="SLTP - Market Research, Backtests and Investing Insights" />
+    <meta
+      property="og:description"
+      content="Backtest trading strategies on 25 years of daily US market data, study the charts and metrics behind them, and follow the tickers you care about."
+    />
+    <meta property="og:url" content="https://sltp-app.com/" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="SLTP - Market Research, Backtests and Investing Insights" />
+    <meta
+      name="twitter:description"
+      content="Backtest trading strategies on 25 years of daily US market data, study the charts and metrics behind them, and follow the tickers you care about."
+    />
+
+    <!-- Site name for Google. WebSite needs name and url and belongs on the
+         home page only; alternateName is the ordered fallback list Google uses
+         when it will not take the primary name, and the bare domain sits last
+         as the safety net. Organization is referenced by @id rather than
+         repeated, because two WebSite blocks on one page fight each other. -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "WebSite",
+            "@id": "https://sltp-app.com/#website",
+            "url": "https://sltp-app.com/",
+            "name": "SLTP",
+            "alternateName": ["SLTP Research", "SLTP app", "sltp-app.com"],
+            "description": "Market research platform for US stocks: backtesting, charts and the headlines behind the tickers you follow.",
+            "inLanguage": "en-US",
+            "publisher": { "@id": "https://sltp-app.com/#organization" }
+          },
+          {
+            "@type": "Organization",
+            "@id": "https://sltp-app.com/#organization",
+            "name": "SLTP",
+            "url": "https://sltp-app.com/",
+            "logo": "https://sltp-app.com/logo.svg"
+          }
+        ]
+      }
+    </script>
+
     <script>
       // Paints the right theme before the bundle runs. Without this the page
       // boots in the light palette and only turns dark once the account row

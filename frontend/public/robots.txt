@@ -1,0 +1,10 @@
+# robots.txt — the whole site is meant to be indexed.
+#
+# The app lives behind one address with the page in the hash (#/research), so
+# there is nothing to disallow; the sitemap lists the single URL Google can act
+# on. The API lives on a different host and never reaches this file.
+
+User-agent: *
+Allow: /
+
+Sitemap: https://sltp-app.com/sitemap.xml
