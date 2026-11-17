@@ -7,7 +7,7 @@
 // is what makes Back and Forward work. Before this, every tab shared "/" and
 // Back left the site.
 
-export const TAB_ROUTES = ['home', 'docs', 'research', 'strategies', 'lab', 'watchlist', 'learn', 'settings', 'guide'] as const;
+export const TAB_ROUTES = ['home', 'docs', 'research', 'strategies', 'lab', 'watchlist', 'learn', 'settings', 'guide', 'bench'] as const;
 
 export type TabRoute = (typeof TAB_ROUTES)[number];
 export type LegalRoute = 'privacy' | 'terms';
