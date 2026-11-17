@@ -6,7 +6,7 @@
   "scripts": {
       "dev": "vite",
       "build": "tsc -b && vite build",
-      "predeploy": "npm run build",
+      "predeploy": "npm run build && node scripts/keep-previous-assets.mjs",
       "deploy": "gh-pages -d dist",
       "lint": "oxlint",
       "lint:learn-copy": "node scripts/lint-learn-copy.mjs",

@@ -221,6 +221,7 @@ export default function HomePage({ onNavigate, onOpenGuide }: HomePageProps) {
     <div className="home-page">
       <section className="home-hero">
         <div className="home-hero-copy">
+          <p className="home-hero-eyebrow">Market research, backtests and investing insights</p>
           <h1 className="home-hero-title">
           A Quantitative research platform built for better investing and trading decisions.
           </h1>
