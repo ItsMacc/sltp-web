@@ -31,6 +31,12 @@ const CHART_W = 1000;
 const CHART_H = 340;
 const CHART = { top: 20, right: 24, bottom: 34, left: 62 };
 const TRADES_PER_PAGE = 20;
+/**
+ * Hard cap on the log text this window will render. A run stuck in a print loop
+ * can emit megabytes, and the pane is an overlay, not a file viewer, so past
+ * this many characters the text stops and the download carries the whole log.
+ */
+const LOG_CHAR_LIMIT = 10_000;
 /** Phones get five trades a page, so the blotter stays a short scroll. */
 const TRADES_PER_PAGE_SMALL = 5;
 const SMALL_VIEWPORT = '(max-width: 48rem)';
@@ -521,6 +527,8 @@ export default function LabResultsWindow({
   const logText = logs
     .map((entry) => entry.text.replace(/\r?\n$/, ''))
     .join('\n');
+  const logTooLong = logText.length > LOG_CHAR_LIMIT;
+  const visibleLogText = logTooLong ? logText.slice(0, LOG_CHAR_LIMIT) : logText;
   const savedAt = formatSavedAt(createdAt);
 
   const downloadLogs = () => {
@@ -806,8 +814,13 @@ export default function LabResultsWindow({
               </Button>
             </div>
             <pre className="lab-results-logs" aria-label="Backtest logs">
-              {logText || 'Nothing was printed during this run.'}
+              {visibleLogText || 'Nothing was printed during this run.'}
             </pre>
+            {logTooLong && (
+              <p className="lab-results-log-note">
+                Cannot show more than 10k characters; please download the log.
+              </p>
+            )}
           </section>
 
           <p className="lab-results-footnote">
