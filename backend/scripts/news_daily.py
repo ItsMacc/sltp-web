@@ -169,11 +169,6 @@ def main() -> int:
             # fetched, so it is reported and the stored part still goes in.
             print(f"market-wide pass stopped early: {err}", flush=True)
 
-    # Two passes overlap on a busy day — the same article can arrive from the
-    # watchlist batch and again from the market-wide feed. Keep the first sight
-    # of each id so the stored count matches the article count.
-    articles = list({article["id"]: article for article in articles}.values())
-
     totals = summarize(articles, watch)
     print()
     print(f"calls: {calls} of {budget}")
