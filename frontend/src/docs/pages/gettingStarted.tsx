@@ -171,7 +171,6 @@ class HoldThree(Strategy):
             ticker=ticker,
             position_type=PositionType.LONG,
             allocation=1.0 / 3.0,
-            order_date=str(data.dates[-1]),
             stop_loss=0.0,
             take_profit=0.0,
         )

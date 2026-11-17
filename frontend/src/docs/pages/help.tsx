@@ -183,6 +183,28 @@ export const HELP: DocGroup = {
       title: 'Changelog',
       lead: 'What changed in the documentation and in the engine surface it describes.',
       blocks: [
+        { kind: 'h2', id: 'release-0-1-41', text: 'Release 0.1.41 — November 2026' },
+        {
+          kind: 'p',
+          text: <>One field leaves the order record. A run's results do not change.</>,
+        },
+        {
+          kind: 'ul',
+          items: [
+            <><strong><C>Order</C> has no <C>order_date</C>.</strong> A strategy no longer states when a signal happened, because the engine never read it: an order fills at the next session&apos;s open, and that bar is the date. The fill is recorded on <C>Trade.entry_date</C>, which is what the trade log already shows.</>,
+            <><strong>Passing it now fails loudly.</strong> <C>Order(..., order_date=…)</C> raises <C>TypeError</C> for an unexpected keyword. Delete the argument and the call is otherwise unchanged; keyword callers need no other edit.</>,
+            <><strong>Stop and target follow <C>allocation</C>.</strong> <C>stop_loss</C> and <C>take_profit</C> were already required, and with the date gone they sit directly after <C>allocation</C> in the record. Positional callers shift by one field; keyword callers do not.</>,
+          ],
+        },
+        {
+          kind: 'code',
+          file: 'order_signature.py',
+          code: `# 0.1.40 and earlier
+Order(ticker, position_type, allocation, order_date, stop_loss, take_profit, meta_data, sizing)
+
+# 0.1.41
+Order(ticker, position_type, allocation, stop_loss, take_profit, meta_data, sizing)`,
+        },
         { kind: 'h2', id: 'release-0-1-40', text: 'Release 0.1.40 — November 2026' },
         {
           kind: 'p',
@@ -317,16 +339,16 @@ export const HELP: DocGroup = {
           kind: 'table',
           head: ['Runtime', 'Pinned sltp version'],
           rows: [
-            ['Browser engine (Pyodide)', '0.1.40'],
-            ['Lab (Pyodide)', '0.1.40'],
-            ['Backend', '>=0.1.40'],
+            ['Browser engine (Pyodide)', '0.1.41'],
+            ['Lab (Pyodide)', '0.1.41'],
+            ['Backend', '>=0.1.41'],
           ],
         },
         {
           kind: 'callout',
           tone: 'note',
           title: 'Versioning',
-          text: <>These docs track the <C>sltp</C> package on PyPI. The browser engine is pinned to <C>sltp 0.1.40</C>; the backend requires <C>sltp&gt;=0.1.40</C>. The backend and the site release separately; the headings below name behaviour, not a tagged build.</>,
+          text: <>These docs track the <C>sltp</C> package on PyPI. The browser engine is pinned to <C>sltp 0.1.41</C>; the backend requires <C>sltp&gt;=0.1.41</C>. The backend and the site release separately; the headings below name behaviour, not a tagged build.</>,
         },
       ],
     },

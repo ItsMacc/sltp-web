@@ -29,7 +29,6 @@ order = Order(
     ticker="AAPL",
     position_type=PositionType.LONG,
     allocation=0.1,
-    order_date="2024-03-01",
     stop_loss=0.0,
     take_profit=0.0,
 )`,
@@ -156,11 +155,16 @@ class Rotator(Strategy):
             { name: 'position_type', type: 'PositionType', description: <><C>LONG</C> or <C>SHORT</C>.</> },
             { name: 'allocation', type: 'float', description: <>Size in the unit named by <C>sizing</C>. Under <C>EQUITY</C> and <C>AVAILABLE</C> it is a fraction; under <C>FIXED</C> it is index points.</> },
             { name: 'sizing', type: 'OrderSizing', fallback: 'OrderSizing.EQUITY', description: <>How <C>allocation</C> is read. <C>EQUITY</C> is a fraction of equity, <C>FIXED</C> is index points, and <C>AVAILABLE</C> is a fraction capped by uninvested cash.</> },
-            { name: 'order_date', type: 'str', description: 'The date the signal was made. The engine records it; the fill uses the session it actually fills on.' },
             { name: 'stop_loss', type: 'float', description: <>Absolute price. <C>0.0</C> turns it off.</> },
             { name: 'take_profit', type: 'float', description: <>Absolute price. <C>0.0</C> turns it off.</> },
             { name: 'meta_data', type: 'dict | None', fallback: 'None', description: 'Anything you want to carry along. The engine does not read it.' },
           ],
+        },
+        {
+          kind: 'callout',
+          tone: 'note',
+          title: 'An order carries no date',
+          text: <>There is no date field. The manager fills the order at the next session&apos;s open and stamps that bar on the trade as <C>Trade.entry_date</C>, so the date on a result is the day the fill happened, not the day the signal was made.</>,
         },
         { kind: 'h2', id: 'sizing', text: 'OrderSizing' },
         {
@@ -216,7 +220,6 @@ return Order(
     ticker=ticker,
     position_type=PositionType.LONG,
     allocation=0.1,
-    order_date=str(data.dates[-1]),
     stop_loss=round(close * 0.95, 2),
     take_profit=round(close * 1.10, 2),
 )`,
@@ -268,7 +271,8 @@ return Order(
 last_ten = data.dates[-10:]      # DateLabels view, still decodes on read
 grid = data.labels               # numpy array of "<U10" strings
 
-order = Order(..., order_date=str(latest), ...)`,
+# Dates stay out of orders: the fill is stamped on Trade.entry_date.
+order = Order(ticker="AAPL", position_type=PositionType.LONG, allocation=0.1, stop_loss=0.0, take_profit=0.0)`,
         },
         {
           kind: 'callout',

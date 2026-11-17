@@ -1094,7 +1094,6 @@ class MovingAverageCrossover(Strategy):
             position_type=PositionType.LONG,
             allocation=self.ALLOCATION,
             sizing=OrderSizing.EQUITY,
-            order_date=str(data.dates[-1]),
             stop_loss=round(close * 0.92, 2),
             take_profit=round(close * 1.16, 2),
         )
@@ -1137,7 +1136,6 @@ class TwentyDayBreakout(Strategy):
             position_type=PositionType.LONG,
             allocation=self.ALLOCATION,
             sizing=OrderSizing.EQUITY,
-            order_date=str(data.dates[-1]),
             stop_loss=round(close * 0.93, 2),
             take_profit=round(close * 1.18, 2),
         )
@@ -1184,7 +1182,6 @@ class Momentum(Strategy):
             position_type=PositionType.LONG,
             allocation=self.ALLOCATION,
             sizing=OrderSizing.EQUITY,
-            order_date=str(data.dates[-1]),
             stop_loss=round(close * 0.90, 2),
             take_profit=round(close * 1.20, 2),
         )

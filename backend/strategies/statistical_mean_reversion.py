@@ -124,7 +124,6 @@ class StatisticalMeanReversionStrategy(Strategy):
             position_type=PositionType.LONG,
             allocation=allocation,
             sizing=OrderSizing.EQUITY,
-            order_date=str(data.dates[-1]),
             stop_loss=round(close - distance, 2),
             take_profit=round(close + distance, 2),
         )

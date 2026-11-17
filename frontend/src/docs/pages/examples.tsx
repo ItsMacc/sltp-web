@@ -44,7 +44,6 @@ class HoldFive(Strategy):
             ticker=ticker,
             position_type=PositionType.LONG,
             allocation=1.0 / len(self.TICKERS),
-            order_date=str(data.dates[-1]),
             stop_loss=0.0,
             take_profit=0.0,
         )
@@ -130,7 +129,6 @@ class FiveTen(Strategy):
             ticker=ticker,
             position_type=PositionType.LONG,
             allocation=self.ALLOCATION,
-            order_date=str(data.dates[-1]),
             stop_loss=round(close * (1.0 - self.STOP_PCT), 2),
             take_profit=round(close * (1.0 + self.TARGET_PCT), 2),
         )
@@ -200,7 +198,6 @@ class Breakout(Strategy):
             ticker=ticker,
             position_type=PositionType.LONG,
             allocation=1.0 / self.MAX_POSITIONS,
-            order_date=str(data.dates[-1]),
             stop_loss=0.0,
             take_profit=0.0,
         )
@@ -307,7 +304,6 @@ class Rotation(Strategy):
             ticker=ticker,
             position_type=PositionType.LONG,
             allocation=1.0 / self.MAX_POSITIONS,
-            order_date=str(data.dates[-1]),
             stop_loss=0.0,
             take_profit=0.0,
         )
@@ -383,7 +379,6 @@ class Breakdown(Strategy):
             ticker=ticker,
             position_type=PositionType.SHORT,
             allocation=self.ALLOCATION,
-            order_date=str(data.dates[-1]),
             stop_loss=round(close * (1.0 + self.STOP_PCT), 2),
             take_profit=round(close * (1.0 - self.TARGET_PCT), 2),
         )

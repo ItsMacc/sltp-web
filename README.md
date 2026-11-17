@@ -78,7 +78,6 @@ class TwoFunds(Strategy):
             ticker=ticker,
             position_type=PositionType.LONG,
             allocation=0.45,
-            order_date=str(data.dates[-1]),
             stop_loss=close * 0.95,
             take_profit=close * 1.10,
         )

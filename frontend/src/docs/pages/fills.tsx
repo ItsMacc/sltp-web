@@ -206,7 +206,6 @@ else:
         ticker=ticker,
         position_type=PositionType.LONG,
         allocation=0.1,
-        order_date=str(data.dates[-1]),
         stop_loss=round(close * 0.95, 2),   # resting: intrabar
         take_profit=0.0,
     )

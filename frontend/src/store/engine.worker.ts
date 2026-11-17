@@ -30,7 +30,7 @@ const PYODIDE_INDEX_URL = 'https://cdn.jsdelivr.net/pyodide/v314.0.7/full/';
     numpy, pyarrow and python-dateutil all ship in the Pyodide distribution
     and are loaded as binary packages, because a WASM runtime cannot use the
     CPython wheels on PyPI. */
-const SLTP_VERSION = '0.1.40';
+const SLTP_VERSION = '0.1.41';
 
 /** The slice of the Pyodide JS API this worker touches. */
 /** The Lab's analyser pins: the same wheels the Lab used to install itself. */

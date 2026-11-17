@@ -95,7 +95,6 @@ class MinimumVolatility(Strategy):
             position_type=PositionType.LONG,
             allocation=self.ALLOCATION,
             sizing=OrderSizing.EQUITY,
-            order_date=str(data.dates[-1]),
             stop_loss=0.0,
             take_profit=0.0,
         )

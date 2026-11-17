@@ -100,7 +100,6 @@ class GlobalTrendAllocation(Strategy):
             position_type=PositionType.LONG,
             allocation=self.MAX_ALLOCATION_PER_TICKER,
             sizing=OrderSizing.EQUITY,
-            order_date=str(data.dates[-1]),
             stop_loss=round(0.0),
             take_profit=round(0.0),
         )
