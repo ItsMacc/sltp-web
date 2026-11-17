@@ -845,7 +845,15 @@
     right: 0;
     bottom: 0;
     z-index: 80;
+    /* The sheet has to live in the part of the screen the keyboard leaves over.
+       dvh follows it where the browser resizes the page, and the viewport-
+       driven lift covers the browsers that draw the keyboard on top. */
     height: min(80vh, 34rem);
+    height: min(80dvh, 34rem);
+    /* Whatever the keyboard covers is space the sheet cannot use, so the lift
+       and the height limit are the same number. */
+    max-height: calc(100dvh - 3rem - var(--ticker-keyboard, 0px));
+    transform: translateY(calc(-1 * var(--ticker-keyboard, 0px)));
     border-radius: 0.625rem 0.625rem 0 0;
     box-shadow: 0 12px 24px -4px rgba(0, 0, 0, 0.18);
   }

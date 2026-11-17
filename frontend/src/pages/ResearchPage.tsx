@@ -326,9 +326,27 @@ export default function ResearchPage({ initialSettings, initialStrategyId }: Res
     }
     window.addEventListener('keydown', onKey)
     document.body.style.overflow = 'hidden'
+    // How much of the screen the keyboard is covering right now. Browsers that
+    // resize the page for the keyboard report nothing here; the ones that paint
+    // it over the sheet (iOS Safari) report the full keyboard height, which the
+    // sheet then lifts itself by.
+    const viewport = window.visualViewport
+    const syncKeyboard = () => {
+      const covered = viewport ? window.innerHeight - viewport.height : 0
+      document.documentElement.style.setProperty(
+        '--ticker-keyboard',
+        `${Math.max(0, Math.round(covered))}px`,
+      )
+    }
+    syncKeyboard()
+    viewport?.addEventListener('resize', syncKeyboard)
+    viewport?.addEventListener('scroll', syncKeyboard)
     return () => {
       window.removeEventListener('keydown', onKey)
       document.body.style.overflow = ''
+      viewport?.removeEventListener('resize', syncKeyboard)
+      viewport?.removeEventListener('scroll', syncKeyboard)
+      document.documentElement.style.removeProperty('--ticker-keyboard')
     }
   }, [listOpen])
 
