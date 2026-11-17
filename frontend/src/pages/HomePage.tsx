@@ -214,8 +214,11 @@ export default function HomePage({ onNavigate, onOpenGuide }: HomePageProps) {
     <div className="home-page">
       <section className="home-hero">
         <div className="home-hero-copy">
+          {/* Word for word the <title> in index.html. Google compares the h1
+              with the title and the site name when it writes a result, and this
+              used to say something completely different. */}
           <h1 className="home-hero-title">
-          A Quantitative research platform built for better investing and trading decisions.
+          SLTP - Market Research, Backtests and Investing Insights
           </h1>
           <p className="home-hero-lede">
             SLTP is an open-source platform that provides a comprehensive set of tools for quantitative research, backtesting, and investment insights. Join SLTP to explore our strategies, learn the fundamentals of investing, and make informed decisions with confidence.
