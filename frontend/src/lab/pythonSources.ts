@@ -19,10 +19,13 @@ from pathlib import Path
 
 python_version = platform.python_version()
 PROJECT_ROOT = Path("/home/pyodide/project")
-# Reads come from a plain data dir whose files link into the mounted cache.
-# Left on the cache root, sltp treats it as a remote cache and re-checks R2
-# inside a run, which is what made a two-year backtest crawl.
-os.environ["SLTP_DATA_DIR"] = "/data"
+# Bars come from the mounted OPFS cache, the same source Research reads. This
+# used to point at /data, a directory a prime step filled with links into the
+# cache; that step went away when the two pages were merged into one kernel and
+# nothing created /data afterwards, so a Lab run started before any Research
+# run found no bars at all. The R2 re-check that /data existed to avoid is
+# already off (BOOTSTRAP sets auto_update False).
+os.environ.pop("SLTP_DATA_DIR", None)
 
 
 def _format_error(exc):
