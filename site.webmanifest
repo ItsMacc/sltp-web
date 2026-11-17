@@ -1,0 +1,15 @@
+{
+  "name": "SLTP - Market Research, Backtests and Investing Insights",
+  "short_name": "SLTP",
+  "description": "Beginner-friendly market research platform for fast backtests and clearer investing decisions.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#17161f",
+  "theme_color": "#17161f",
+  "icons": [
+    { "src": "/favicon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/favicon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/favicon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
