@@ -121,39 +121,3 @@ CREATE TABLE IF NOT EXISTS ops_state (
   value TEXT NOT NULL,
   updated_at TEXT
 );
-
--- Alpaca's headline feed, five days of rolling window. news_articles keeps each
--- article once; news_symbols inverts it so the newest headline for one ticker is
--- an index lookup. news_runs is one row per pull, which is where "how many
--- tickers did we actually get" lives.
-CREATE TABLE IF NOT EXISTS news_articles (
-  id TEXT PRIMARY KEY,
-  headline TEXT NOT NULL,
-  summary TEXT NOT NULL DEFAULT '',
-  author TEXT NOT NULL DEFAULT '',
-  source TEXT NOT NULL DEFAULT '',
-  url TEXT,
-  image TEXT,
-  symbols TEXT NOT NULL DEFAULT '[]',
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL,
-  fetched_at TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS news_symbols (
-  symbol TEXT NOT NULL,
-  article_id TEXT NOT NULL,
-  created_at TEXT NOT NULL,
-  PRIMARY KEY (symbol, article_id)
-);
-CREATE INDEX IF NOT EXISTS idx_news_symbols_recent ON news_symbols(symbol, created_at DESC);
-CREATE TABLE IF NOT EXISTS news_runs (
-  id TEXT PRIMARY KEY,
-  ran_at TEXT NOT NULL,
-  window_start TEXT,
-  window_end TEXT,
-  calls INTEGER NOT NULL DEFAULT 0,
-  articles INTEGER NOT NULL DEFAULT 0,
-  symbols INTEGER NOT NULL DEFAULT 0,
-  watchlist_hits INTEGER NOT NULL DEFAULT 0,
-  note TEXT
-);
