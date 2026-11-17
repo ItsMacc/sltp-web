@@ -35,6 +35,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
+    # A secret that has not been created expands to an empty string, not to
+    # nothing, so every consumer of these has to read empty as unset. R2_BUCKET
+    # is the one that bites: an empty bucket name signs a request to the wrong
+    # path. r2.py now falls back with `or`, and the values with code defaults
+    # (GATEWAY_URL, SMTP_PORT, FROM_EMAIL) are simply not passed from here.
     env:
       R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
       R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
@@ -76,6 +81,13 @@ jobs:
         working-directory: backend
         run: python scripts/daily_r2_update.py
 
+      # An update that pulls nothing still exits 0, so the night would go green
+      # with week-old bars. This asks the NYSE calendar what session should exist
+      # and fails the run when R2's newest session is behind it.
+      - name: Check the data is fresh
+        working-directory: backend
+        run: python scripts/daily_r2_update.py --check-fresh
+
   operator-brief:
     name: Operator brief
     # Runs even when the update failed: the brief is how you find out that it did.
@@ -89,7 +101,8 @@ jobs:
       SUPABASE_SERVICE_ROLE: ${{ secrets.SUPABASE_SERVICE_ROLE }}
       TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
       TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
-      GATEWAY_URL: ${{ secrets.GATEWAY_URL }}
+      # GATEWAY_URL is deliberately absent: app.config reads SLTP_GATEWAY_URL and
+      # has a working default, and an empty GATEWAY_URL would only shadow nothing.
       SMTP_HOST: ${{ secrets.SMTP_HOST }}
       SMTP_PORT: ${{ secrets.SMTP_PORT }}
       SMTP_USER: ${{ secrets.SMTP_USER }}

@@ -17,6 +17,9 @@ The .bin format is: 24-byte preamble (magic SLTPFLAT, format 1, header_len,
 rows), embedded JSON header, then sym u16 / date u16 / OHLCV f32 arrays.
 There is no separate index.json.
 
+After the nightly run, add this to fail the night that learned nothing:
+  ../.venv/bin/python scripts/daily_r2_update.py --check-fresh
+
 Yearly chore (run each January after the year settles):
   ../.venv/bin/python scripts/daily_r2_update.py --fold-year 2026
 moves the tail's rows from that completed calendar year into
@@ -30,12 +33,26 @@ import io
 import json
 import sys
 import traceback
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
 import pyarrow.parquet as pq
+
+from pandas.tseries.holiday import (
+    AbstractHolidayCalendar,
+    DateOffset,
+    Easter,
+    Holiday,
+    MO,
+    USLaborDay,
+    USMartinLutherKingJr,
+    USMemorialDay,
+    USThanksgivingDay,
+    nearest_workday,
+)
 import yfinance as yf
 from sltp.utils.Dates import EPOCH_ORDINAL, register
 
@@ -94,6 +111,72 @@ def _tail_entry(manifest: dict) -> dict:
     # The retired parquet tail must not keep a duplicate manifest entry.
     manifest["files"] = [e for e in manifest["files"] if e["key"] != TAIL_PARQUET]
     return entry
+
+
+# -------- Freshness guard --------
+# The update can finish cleanly and still learn nothing: yfinance answers
+# happily with an empty frame, the merge keeps the old rows, last_session
+# stays where it was, and the night looks green while the data ages. The guard
+# asks the calendar what session should exist by now and fails when R2 is
+# behind it, so an empty night becomes a red run instead of a silent one.
+class _NyseClosed(AbstractHolidayCalendar):
+    """Days the exchange does not trade, close enough for a freshness check.
+
+    nearest_workday is the rule the exchange itself uses for New Year, July 4
+    and Christmas: a Saturday holiday closes the Friday before, a Sunday one
+    the Monday after. Unscheduled closures (a hurricane, a funeral) are not
+    modelled, and they only ever make this check more forgiving.
+    """
+
+    rules = [
+        Holiday("New Year's Day", month=1, day=1, observance=nearest_workday),
+        USMartinLutherKingJr,
+        Holiday("Washington's Birthday", month=2, day=1, offset=DateOffset(weekday=MO(3))),
+        Holiday("Good Friday", month=1, day=1, offset=[Easter(), DateOffset(days=-2)]),
+        USMemorialDay,
+        Holiday("Juneteenth", month=6, day=19, observance=nearest_workday,
+                start_date="2022-06-19"),
+        Holiday("Independence Day", month=7, day=4, observance=nearest_workday),
+        USLaborDay,
+        USThanksgivingDay,
+        Holiday("Christmas", month=12, day=25, observance=nearest_workday),
+    ]
+
+
+NY = ZoneInfo("America/New_York")
+
+
+def expected_session(as_of: date | None = None) -> date:
+    """The newest session whose closing bar should exist by now."""
+    day = as_of or datetime.now(NY).date()
+    closed = {
+        stamp.date() for stamp in _NyseClosed().holidays(day - timedelta(days=45), day)
+    }
+    while day.weekday() >= 5 or day in closed:
+        day -= timedelta(days=1)
+    return day
+
+
+def check_fresh(tolerance_days: int = 0) -> int:
+    """Exit 1 when the bucket's newest session is older than the calendar's."""
+    manifest = json.loads(_s3("GET", MANIFEST_KEY).decode())
+    entry = next((e for e in manifest["files"] if e["key"] == TAIL_KEY), None)
+    if entry is None:
+        print(f"STALE: the manifest has no {TAIL_KEY} entry.")
+        return 1
+    newest = date.fromisoformat(entry["last_session"])
+    wanted = expected_session()
+    behind = (wanted - newest).days
+    print(f"freshness: R2 last_session {newest}, calendar wants {wanted} "
+          f"({behind} day(s) behind), version {manifest.get('version')}", flush=True)
+    if behind > tolerance_days:
+        print(f"STALE: the newest session is {newest} but {wanted} should be in "
+              "R2 by now. The update ran without new bars — check whether Yahoo "
+              "returned anything for the window before trusting tomorrow's numbers.",
+              flush=True)
+        return 1
+    print("fresh: the bucket carries the session the calendar expects.", flush=True)
+    return 0
 
 
 def main() -> int:
@@ -335,6 +418,16 @@ def fold_year(year: int) -> int:
 
 
 if __name__ == "__main__":
+    if "--check-fresh" in sys.argv:
+        pos = sys.argv.index("--check-fresh")
+        tolerance = 0
+        if len(sys.argv) > pos + 1 and sys.argv[pos + 1].isdigit():
+            tolerance = int(sys.argv[pos + 1])
+        try:
+            sys.exit(check_fresh(tolerance))
+        except Exception:
+            _alert_admin()
+            raise
     if "--fold-year" in sys.argv:
         pos = sys.argv.index("--fold-year")
         try:

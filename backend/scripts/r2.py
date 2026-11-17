@@ -62,7 +62,9 @@ def _config() -> tuple[str, str, str, str]:
         if os.environ.get("CLOUDFLARE_ACCOUNT_ID") else "")
     if not endpoint:
         raise RuntimeError("Missing CLOUDFLARE_URL or CLOUDFLARE_ACCOUNT_ID in .env.")
-    bucket = os.environ.get("R2_BUCKET", "sltp-market-data")
+    # `or`, not a default argument: CI expands an unset secret to an empty
+    # string, which a plain default would happily keep as the bucket name.
+    bucket = os.environ.get("R2_BUCKET") or "sltp-market-data"
     return endpoint.split("://", 1)[-1], bucket, \
         os.environ["R2_ACCESS_KEY_ID"], os.environ["R2_SECRET_ACCESS_KEY"]
 
