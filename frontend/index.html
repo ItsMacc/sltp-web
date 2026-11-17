@@ -86,7 +86,21 @@
     </script>
   </head>
   <body>
-    <div id="root"></div>
+    <!-- Crawlable first paint, removed in main.tsx. Mirrors the hero in HomePage.tsx. -->
+    <div id="root">
+      <div id="boot-content">
+        <h1>A Quantitative research platform built for better investing and trading decisions.</h1>
+        <p>
+          SLTP is an open-source platform that provides a comprehensive set of tools for
+          quantitative research, backtesting, and investment insights.
+        </p>
+      </div>
+    </div>
+    <style>
+      #boot-content { max-width: min(68.75rem, 95vw); margin: 0 auto; padding: 6rem 1.5rem 4rem; }
+      #boot-content h1 { max-width: 20ch; margin: 0; font-size: clamp(2rem, 5vw, 3.5rem); line-height: 1.1; }
+      #boot-content p { max-width: 60ch; margin: 1rem 0 0; line-height: 1.7; }
+    </style>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

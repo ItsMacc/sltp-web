@@ -12,6 +12,9 @@ import App from './App.tsx'
 // of automatic eviction. A refusal changes nothing about how the app works.
 void requestPersistentStorage()
 
+// The crawlable first paint from index.html.
+document.getElementById('boot-content')?.remove()
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>

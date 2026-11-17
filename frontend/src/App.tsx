@@ -53,6 +53,9 @@ export interface UserProfile {
   settings?: { theme?: string; [key: string]: any };
 }
 
+/** How long the session check may hold the app before it paints without one. */
+const SESSION_WAIT_MS = 2500;
+
 /** The tabs whose charts read local bars, so the download earns its bandwidth. */
 const MARKET_DATA_TABS = new Set<string>(['research', 'strategies', 'watchlist']);
 
@@ -329,19 +332,32 @@ export default function App() {
   };
 
   useEffect(() => {
+    // A session read that never answers must not hold the loader over the page.
+    let alive = true;
+    const release = () => {
+      if (alive) setLoading(false);
+    };
+    const timer = window.setTimeout(release, SESSION_WAIT_MS);
+
     supabase.auth.getSession().then(async ({ data: { session } }) => {
+      window.clearTimeout(timer);
+      if (!alive) return;
       // A visitor who did not ask to be remembered gets one day; the token is
       // still valid, so this is where that promise is kept.
       if (session?.user && sessionExpired()) {
         await supabase.auth.signOut();
-        setLoading(false);
+        release();
         return;
       }
       // Paint first, fill the account in behind it. Waiting for the profile row
       // and the provision call put a Supabase read and a Render round trip in
       // front of every first frame, which is most of what "slow to load" meant.
-      setLoading(false);
+      release();
       if (session?.user) void syncUser(session.user.id, session.user.email || '');
+    }).catch(() => {
+      // A refused session read is a signed-out visit, not a hung boot.
+      window.clearTimeout(timer);
+      release();
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_, session) => {
@@ -360,7 +376,11 @@ export default function App() {
       }
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      alive = false;
+      window.clearTimeout(timer);
+      subscription.unsubscribe();
+    };
   }, [syncUser]);
 
   // Opening Terms / Privacy swaps the whole page body but leaves the window

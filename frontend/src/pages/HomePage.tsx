@@ -210,9 +210,7 @@ const BENTO_MINIS: { title: string; text: string; code?: string }[] = [
 ];
 
 export default function HomePage({ onNavigate, onOpenGuide }: HomePageProps) {
-  // The hero's main action answers itself one screen down: the tools section is
-  // where SLTP explains what it does. A reader who asked for reduced motion gets
-  // the jump without the animation.
+  // The hero's main action answers itself one screen down.
   function scrollToTools() {
     const target = document.getElementById('home-tools');
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
