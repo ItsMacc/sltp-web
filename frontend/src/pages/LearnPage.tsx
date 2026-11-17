@@ -134,20 +134,28 @@ export default function LearnPage() {
       const level = levelForLesson(lesson.id);
       if (!level) return;
       if (!learn.isLessonDone(lesson.id) && !learn.isLessonUnlocked(level, lesson.id)) {
-        navigate(level.id);
+        // Locked. Show where it lives only when the reader is somewhere else:
+        // navigating to the level they are already on pulled them out of the
+        // lesson they were reading and looked like a link that misfired.
+        if (level.id !== currentLevel.id) navigate(level.id);
         return;
       }
       navigate(`${level.id}/${lesson.id}`);
     },
-    [learn, navigate],
+    [currentLevel.id, learn, navigate],
   );
 
   const openCertificate = useCallback(
     (level: Level) => {
-      if (learn.isCertified(level.id)) navigate(`${level.id}/certificate`);
-      else openLevel(level.id);
+      if (learn.isCertified(level.id)) {
+        navigate(`${level.id}/certificate`);
+        return;
+      }
+      // Not earned yet: the level page explains what it takes. Sending a reader
+      // to the level they are already on was the same dead end as a locked badge.
+      if (level.id !== currentLevel.id) openLevel(level.id);
     },
-    [learn, navigate, openLevel],
+    [currentLevel.id, learn, navigate, openLevel],
   );
 
   const handleFinish = useCallback(() => {
