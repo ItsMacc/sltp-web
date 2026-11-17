@@ -702,3 +702,18 @@
     display: none;
   }
 }
+
+/* Tablet widths wrap the tool cards two per row. The row that cannot fill is
+   centred rather than left hanging, and a lone card no longer stretches to the
+   full width beside nothing. 64rem is the iPad's landscape width, where three
+   cards plus two looked uneven. */
+@media (max-width: 64rem) {
+  .home-cards {
+    justify-content: center;
+  }
+
+  .home-card {
+    flex: 1 1 22rem;
+    max-width: 30rem;
+  }
+}
