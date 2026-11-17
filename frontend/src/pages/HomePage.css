@@ -707,8 +707,13 @@
 /* Tablet widths wrap the tool cards two per row. The row that cannot fill is
    centred rather than left hanging, and a lone card no longer stretches to the
    full width beside nothing. 64rem is the iPad's landscape width, where three
-   cards plus two looked uneven. */
-@media (max-width: 64rem) {
+   cards plus two looked uneven.
+
+   Starts at 48rem, where the phone composition hands over. Without that floor
+   this block also matched phones and its `flex: 1 1 22rem` overrode the phone
+   list's `flex: 0 0 auto`; stacked in a column, that basis is a *height*, so
+   every row grew to 22rem and the list became 334px-tall boxes. */
+@media (min-width: 48rem) and (max-width: 64rem) {
   .home-cards {
     justify-content: center;
   }
