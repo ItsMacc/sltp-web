@@ -272,6 +272,14 @@
   white-space: nowrap;
 }
 
+/* A phone's measure cannot hold the lead on one line at that type size, and
+   nowrap pushed the card past its own padding. */
+@media (max-width: 47.99rem) {
+  .bento__stat-lead {
+    white-space: normal;
+  }
+}
+
 .bento__stat-tail {
   display: block;
   line-height: 1.85;
