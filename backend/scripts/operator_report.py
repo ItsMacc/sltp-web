@@ -13,9 +13,10 @@
 #   ../.venv/bin/python scripts/operator_report.py --send   mail it to the operator
 #   ../.venv/bin/python scripts/operator_report.py --send --force   ignore the already-sent marker
 #
-# The sent marker lives in ~/.sltp/operator_report_sent (one date per line
-# concept: a single ISO date). A rerun on the same day stays quiet unless
-# --force is passed.
+# The sent marker is one row in Turso (ops_state, key operator_report_sent), so a
+# scheduled runner that starts with an empty home directory still knows the brief
+# went out. Without Turso configured it falls back to ~/.sltp/operator_report_sent.
+# A rerun on the same day stays quiet unless --force is passed.
 
 # -------- Imports --------
 import argparse
@@ -34,6 +35,8 @@ from app.config import (
     SUPABASE_URL,
     SUPABASE_SERVICE_KEY,
     SUPABASE_TIMEOUT,
+    TURSO_TOKEN,
+    TURSO_URL,
     service_headers,
 )
 from app.health import collect_health
@@ -272,16 +275,43 @@ def format_text(report: dict[str, Any]) -> str:
 
 
 # -------- Already-sent marker --------
-def already_sent_today(date_str: str) -> bool:
+# Turso first, because that is the copy every machine shares. The file is read
+# only when there is no database to ask (a laptop without .env), and is written
+# as a local breadcrumb either way, so running it by hand still behaves.
+MARKER_KEY = "operator_report_sent"
+
+
+def _turso_ready() -> bool:
+    return bool(TURSO_URL and TURSO_TOKEN)
+
+
+def last_sent_date() -> str | None:
+    if _turso_ready():
+        try:
+            return userdata.get_ops_state(MARKER_KEY)
+        except Exception as err:  # noqa: BLE001 - the file below is the fallback
+            print(f"Turso marker unreadable ({err}); using the local file.")
     try:
-        return SENT_MARKER.read_text(encoding="utf-8").strip() == date_str
+        return SENT_MARKER.read_text(encoding="utf-8").strip() or None
     except OSError:
-        return False
+        return None
+
+
+def already_sent_today(date_str: str) -> bool:
+    return last_sent_date() == date_str
 
 
 def mark_sent(date_str: str) -> None:
-    SENT_MARKER.parent.mkdir(parents=True, exist_ok=True)
-    SENT_MARKER.write_text(date_str + "\n", encoding="utf-8")
+    if _turso_ready():
+        try:
+            userdata.set_ops_state(MARKER_KEY, date_str)
+        except Exception as err:  # noqa: BLE001 - never fail a sent mail on bookkeeping
+            print(f"Could not record the send in Turso: {err}")
+    try:
+        SENT_MARKER.parent.mkdir(parents=True, exist_ok=True)
+        SENT_MARKER.write_text(date_str + "\n", encoding="utf-8")
+    except OSError:
+        pass
 
 
 # -------- CLI --------

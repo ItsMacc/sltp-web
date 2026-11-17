@@ -112,3 +112,12 @@ CREATE TABLE IF NOT EXISTS backtest_results (
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_results_user ON backtest_results(user_id);
+
+-- Scheduled-job state: "the brief went out on this date", "the data update last
+-- ran at this time". A CI runner starts empty every night, so anything the
+-- scripts need to remember between runs has to live here, not in $HOME.
+CREATE TABLE IF NOT EXISTS ops_state (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_at TEXT
+);

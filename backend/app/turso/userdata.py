@@ -429,6 +429,45 @@ def delete_workspace(user_id: str, workspace_id: str) -> bool:
 _settings_table_ready = False
 
 
+# -------- Ops state --------
+# Two facts the scheduled scripts need to remember between runs: that today's
+# brief went out, and when the data update last succeeded. They used to live in
+# ~/.sltp on whichever machine ran them, which meant a fresh CI runner started
+# with a blank slate and mailed the report again. One small key/value table is
+# enough, and it is created on first write like the settings table above.
+_ops_state_ready = False
+
+
+def _ensure_ops_state_table() -> None:
+    global _ops_state_ready
+    if _ops_state_ready:
+        return
+    execute(
+        "CREATE TABLE IF NOT EXISTS ops_state ("
+        "key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT)",
+        [],
+    )
+    _ops_state_ready = True
+
+
+def get_ops_state(key: str) -> str | None:
+    _ensure_ops_state_table()
+    row = execute_one("SELECT value FROM ops_state WHERE key = ?", [key])
+    if not row:
+        return None
+    value = row.get("value")
+    return str(value) if value is not None else None
+
+
+def set_ops_state(key: str, value: str) -> None:
+    _ensure_ops_state_table()
+    execute(
+        "INSERT INTO ops_state (key, value, updated_at) VALUES (?, ?, ?)"
+        " ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+        [key, value, now_iso()],
+    )
+
+
 def _ensure_project_settings_table() -> None:
     global _settings_table_ready
     if _settings_table_ready:
