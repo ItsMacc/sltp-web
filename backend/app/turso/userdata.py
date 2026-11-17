@@ -10,6 +10,7 @@ import json
 import re
 import uuid
 
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from app.config import now_iso
@@ -1236,3 +1237,210 @@ def delete_user_lab_data(user_id: str) -> None:
     execute("DELETE FROM backtest_results WHERE user_id = ?", [user_id])
     execute("DELETE FROM lab_backtests WHERE user_id = ?", [user_id])
     delete_user_lab_projects(user_id)
+
+
+# -------- News --------
+# Alpaca's headline feed, kept for a rolling window and served per watched
+# symbol. news_articles holds each article once; news_symbols inverts it, so
+# "the newest two for UBER" is an index lookup rather than a scan through the
+# symbols JSON on every row. news_runs records each pull, which is what makes
+# "how many tickers did we actually get" answerable after the fact instead of a
+# number that only existed in a log line.
+_news_tables_ready = False
+
+# The column order the inserts below build their placeholders from.
+NEWS_COLUMNS: tuple[str, ...] = (
+    "id", "headline", "summary", "author", "source", "url", "image",
+    "symbols", "created_at", "updated_at", "fetched_at",
+)
+
+
+def _ensure_news_tables() -> None:
+    global _news_tables_ready
+    if _news_tables_ready:
+        return
+    execute(
+        "CREATE TABLE IF NOT EXISTS news_articles ("
+        "id TEXT PRIMARY KEY, headline TEXT NOT NULL, summary TEXT NOT NULL DEFAULT '',"
+        "author TEXT NOT NULL DEFAULT '', source TEXT NOT NULL DEFAULT '', url TEXT,"
+        "image TEXT, symbols TEXT NOT NULL DEFAULT '[]', created_at TEXT NOT NULL,"
+        "updated_at TEXT NOT NULL, fetched_at TEXT NOT NULL)",
+        [],
+    )
+    execute(
+        "CREATE TABLE IF NOT EXISTS news_symbols ("
+        "symbol TEXT NOT NULL, article_id TEXT NOT NULL, created_at TEXT NOT NULL,"
+        "PRIMARY KEY (symbol, article_id))",
+        [],
+    )
+    execute(
+        "CREATE INDEX IF NOT EXISTS idx_news_symbols_recent"
+        " ON news_symbols(symbol, created_at DESC)",
+        [],
+    )
+    execute(
+        "CREATE TABLE IF NOT EXISTS news_runs ("
+        "id TEXT PRIMARY KEY, ran_at TEXT NOT NULL, window_start TEXT, window_end TEXT,"
+        "calls INTEGER NOT NULL DEFAULT 0, articles INTEGER NOT NULL DEFAULT 0,"
+        "symbols INTEGER NOT NULL DEFAULT 0, watchlist_hits INTEGER NOT NULL DEFAULT 0,"
+        "note TEXT)",
+        [],
+    )
+    _news_tables_ready = True
+
+
+# Store a page of articles, forty rows at a time. Multi-row inserts matter here:
+# the client is one HTTP POST per statement, and a busy day is thousands of
+# articles. INSERT OR IGNORE makes a rerun cheap — Alpaca re-serves the same
+# article id under the same window, and the second write is a no-op.
+def upsert_news(articles: list[dict[str, Any]], fetched_at: str, chunk: int = 40) -> int:
+    _ensure_news_tables()
+    written = 0
+    width = len(NEWS_COLUMNS)
+    for start in range(0, len(articles), chunk):
+        batch = articles[start:start + chunk]
+        article_args: list[Any] = []
+        symbol_args: list[Any] = []
+        for article in batch:
+            symbols = article.get("symbols") or []
+            article_args.extend([
+                article["id"], article["headline"], article.get("summary", ""),
+                article.get("author", ""), article.get("source", ""),
+                article.get("url"), article.get("image"),
+                json.dumps(symbols, separators=(",", ":")),
+                article["created_at"], article.get("updated_at") or article["created_at"],
+                fetched_at,
+            ])
+            for symbol in symbols:
+                symbol_args.extend([symbol, article["id"], article["created_at"]])
+
+        placeholders = ",".join("(" + ",".join(["?"] * width) + ")" for _ in batch)
+        execute(
+            f"INSERT OR IGNORE INTO news_articles ({', '.join(NEWS_COLUMNS)})"
+            f" VALUES {placeholders}",
+            article_args,
+        )
+        if symbol_args:
+            symbol_placeholders = ",".join("(?,?,?)" for _ in range(len(symbol_args) // 3))
+            execute(
+                "INSERT OR IGNORE INTO news_symbols (symbol, article_id, created_at)"
+                f" VALUES {symbol_placeholders}",
+                symbol_args,
+            )
+        written += len(batch)
+    return written
+
+
+# Drop everything older than the window. The app only ever shows the newest few
+# per symbol, so an unbounded table would be a bill with no reader.
+def prune_news(days: int = 5) -> str:
+    _ensure_news_tables()
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat().replace("+00:00", "Z")
+    execute("DELETE FROM news_symbols WHERE created_at < ?", [cutoff])
+    execute("DELETE FROM news_articles WHERE created_at < ?", [cutoff])
+    return cutoff
+
+
+def record_news_run(
+    *,
+    window_start: str,
+    window_end: str,
+    calls: int,
+    articles: int,
+    symbols: int,
+    watchlist_hits: int,
+    note: str = "",
+) -> None:
+    _ensure_news_tables()
+    execute(
+        "INSERT INTO news_runs (id, ran_at, window_start, window_end, calls, articles,"
+        " symbols, watchlist_hits, note) VALUES (?,?,?,?,?,?,?,?,?)",
+        [
+            _new_id(), now_iso(), window_start, window_end,
+            calls, articles, symbols, watchlist_hits, note[:400],
+        ],
+    )
+
+
+# Every symbol on any account's watchlist, deduped and upper-cased. This is the
+# set the nightly pull asks for by name, so the news the app shows is always
+# there no matter how noisy the market-wide feed was that day.
+def watchlist_symbols() -> list[str]:
+    rows = execute("SELECT items FROM watchlists", [])
+    symbols: set[str] = set()
+    for row in rows:
+        try:
+            items = json.loads(row.get("items") or "[]")
+        except (TypeError, ValueError):
+            continue
+        for item in items if isinstance(items, list) else []:
+            symbol = str(item).strip().upper()
+            if symbol:
+                symbols.add(symbol)
+    return sorted(symbols)
+
+
+# The newest <per_symbol> articles for each symbol, ready to serve as JSON.
+# Window function rather than a query per ticker: one round trip for the whole
+# watchlist, which is what keeps a Render cold start from turning into N calls.
+def news_snapshot(
+    symbols: list[str] | None = None,
+    per_symbol: int = 2,
+    chunk: int = 400,
+) -> dict[str, list[dict[str, Any]]]:
+    _ensure_news_tables()
+    snapshot: dict[str, list[dict[str, Any]]] = {}
+    wanted = [s.strip().upper() for s in (symbols or []) if s.strip()]
+    groups = [wanted[i:i + chunk] for i in range(0, len(wanted), chunk)] or [None]
+
+    for group in groups:
+        sql = (
+            "SELECT ranked.symbol AS symbol, a.id AS id, a.headline AS headline,"
+            " a.summary AS summary, a.source AS source, a.url AS url,"
+            " a.created_at AS created_at, a.symbols AS symbols"
+            " FROM (SELECT symbol, article_id, created_at,"
+            "       ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY created_at DESC) AS rn"
+            "       FROM news_symbols"
+        )
+        args: list[Any] = []
+        if group:
+            sql += f" WHERE symbol IN ({','.join(['?'] * len(group))})"
+            args.extend(group)
+        sql += ") ranked JOIN news_articles a ON a.id = ranked.article_id"
+        sql += " WHERE ranked.rn <= ? ORDER BY ranked.symbol, a.created_at DESC"
+        args.append(max(1, per_symbol))
+
+        for row in execute(sql, args):
+            symbol = str(row.get("symbol") or "")
+            try:
+                related = json.loads(row.get("symbols") or "[]")
+            except (TypeError, ValueError):
+                related = []
+            snapshot.setdefault(symbol, []).append({
+                "id": str(row.get("id") or ""),
+                "headline": row.get("headline") or "",
+                "summary": row.get("summary") or "",
+                "source": row.get("source") or "",
+                "url": row.get("url") or "",
+                "created_at": row.get("created_at") or "",
+                "related": [s for s in related if s and s != symbol],
+            })
+    return snapshot
+
+
+# What is actually in the window right now, for the job's summary line and for
+# the operator brief later: how many articles, how many symbols, how recent.
+def news_stats() -> dict[str, Any]:
+    _ensure_news_tables()
+    row = execute_one(
+        "SELECT COUNT(*) AS articles, MIN(created_at) AS oldest,"
+        " MAX(created_at) AS newest FROM news_articles",
+        [],
+    ) or {}
+    symbols = execute_one("SELECT COUNT(DISTINCT symbol) AS n FROM news_symbols", []) or {}
+    return {
+        "articles": int(row.get("articles") or 0),
+        "symbols": int(symbols.get("n") or 0),
+        "oldest": row.get("oldest"),
+        "newest": row.get("newest"),
+    }

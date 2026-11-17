@@ -136,7 +136,10 @@ First data call downloads the needed year files from R2 into `~/.sltp/cache`. La
 ../.venv/bin/python scripts/operator_report.py              # print today's brief
 ../.venv/bin/python scripts/operator_report.py --send       # mail it to the operator
 ../.venv/bin/python scripts/daily_r2_update.py              # nightly R2 tail top-up (cron)
+../.venv/bin/python scripts/daily_r2_update.py --check-fresh    # exit 1 when the newest session is stale
 ../.venv/bin/python scripts/daily_r2_update.py --fold-year 2026  # yearly: fold the tail's old year into its year file
+../.venv/bin/python scripts/news_daily.py                    # nightly Alpaca news pull into Turso
+../.venv/bin/python scripts/news_daily.py --max-calls 5 --no-store  # probe the feed, write nothing
 ../.venv/bin/python scripts/r2_usage.py                     # this month's Class A/B op counts
 ```
 
@@ -164,13 +167,17 @@ A `Strategy` overrides `initialize_universe`, `on_signal`, `on_rebalance`, `shou
 
 **Front end.** React 19 and TypeScript on Vite 8, with plain CSS built on the design tokens in `frontend/src/index.css`. Pages use plain `fetch` through `frontend/lib/api.ts` against the API base URL; Supabase in the browser is only the auth client. TanStack Query backs the Lab editor's cached reads. The Lab runs Monaco with a Pyright language server (`monaco-pyright-lsp`), so the editor reports type errors without a Python process — the workspace panels are live, but opening code stays disabled until the server file APIs land. The interactive tours use driver.js against the live pages.
 
-**Scheduled jobs.** `backend/scripts/operator_report.py` prints (or with `--send`, mails) a daily brief of signups and usage, recording what it sent under `~/.sltp` so a rerun stays quiet. `backend/scripts/daily_r2_update.py` tops up the R2 tail file nightly (plus a `--fold-year` run each January to fold the old year into its year file) and mails the operator if it crashes. `backend/app/notify/mailer.py` is the only module that sends mail: the operator brief and crash alerts plus the account mail (login security notices and notifications).
+**Scheduled jobs.** `.github/workflows/daily.yml` runs all three every night at 21:30 UTC (17:30 US Eastern in summer, 16:30 in winter), one behind the other only where order matters: R2 first, then the brief, with the news pull beside them. `backend/scripts/operator_report.py` prints (or with `--send`, mails) a daily brief of signups and usage, recording what it sent in Turso (`ops_state`) so a rerun on a fresh runner still knows the brief went out. `backend/scripts/daily_r2_update.py` tops up the R2 tail file, folds a finished year into its year file the first night after New Year, and has a `--check-fresh` mode that compares the manifest's newest session with the NYSE calendar so a night that pulled nothing goes red instead of green. `backend/scripts/news_daily.py` pulls Alpaca's headline feed. `backend/app/notify/mailer.py` is the only module that sends mail: the operator brief and crash alerts plus the account mail (login security notices and notifications).
+
+**News.** Alpaca's news endpoint is part of the free Basic plan: 200 requests a minute for the whole account, at most 50 articles a page, and nothing newer than fifteen minutes. `backend/app/news/alpaca.py` calls `GET /v1beta1/news` with plain `requests` and no SDK, which keeps the `X-Ratelimit-*` headers visible, and normalizes one article to the columns we store: id, headline, summary, author, source, url, first image, the symbols it mentions, and both timestamps. Article body (`content`) is dropped on purpose — it is HTML, often truncated, and the url is the way back to it.
+
+The nightly pull runs two passes: the symbols on somebody's watchlist, twenty to a request, so what the app shows is always covered; then the market-wide feed until the call budget runs out (180 calls by default, under the account's 200-a-minute ceiling, paced at about 150 a minute). Storage is Turso, not R2 — `news_articles` holds each article once, `news_symbols` inverts it so the newest headline for one ticker is an index lookup, and `news_runs` records one row per pull with the call count and ticker count. Everything older than five days is pruned at the end of each run, and the app reads `news_snapshot()`: the newest two headlines per symbol, one query, filtered client-side against the user's own list. A 26-hour pull window covers a Monday after a weekend; no news on a holiday simply leaves the previous day's headlines in place until they age out.
 
 ## Repository layout
 
 ```
 backend/
-  app/             FastAPI app: market routes, users, Turso, auth, notify
+  app/             FastAPI app: market routes, users, Turso, auth, notify, news
   strategies/      plain sltp strategies the /api/backtest/run ids map to
   schema.sql       create-only Supabase schema (paste once into SQL Editor)
   scripts/         nightly R2 update, operator brief, usage readout, one-off repairs
@@ -185,7 +192,7 @@ LICENSE
 
 ## Limits
 
-This is a research tool. It does not connect to a broker, hold positions or place orders, and it has no path to live trading. Backtest results are hypothetical: fills assume the open, costs are fixed at the rates above, and dividends are recorded but not paid into a position. There are no automated tests and no CI pipeline.
+This is a research tool. It does not connect to a broker, hold positions or place orders, and it has no path to live trading. Backtest results are hypothetical: fills assume the open, costs are fixed at the rates above, and dividends are recorded but not paid into a position. There are no automated tests; the only CI is the nightly data workflow, which fails loudly rather than verifying the app.
 
 ## Credits
 

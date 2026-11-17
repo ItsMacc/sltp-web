@@ -40,6 +40,15 @@ GATEWAY_URL: str = os.environ.get(
     "SLTP_GATEWAY_URL", "https://sltp-data.magicaltitan7.workers.dev"
 ).rstrip("/")
 
+# Alpaca's news feed. The keys belong to a trading account, but the news
+# endpoint is part of the free Basic plan: 200 requests a minute for the whole
+# account, and nothing newer than fifteen minutes comes back. The URL is
+# overridable so a test can point at a stub.
+ALPACA_KEY_ID: str = (os.environ.get("ALPACA_API_KEY") or "").strip()
+ALPACA_SECRET: str = (os.environ.get("ALPACA_SECRET_KEY") or "").strip()
+ALPACA_DATA_URL: str = (os.environ.get("ALPACA_DATA_URL") or "https://data.alpaca.markets").rstrip("/")
+NEWS_TIMEOUT: int = 20
+
 
 # -------- Supabase REST --------
 # Service-role headers. The backend is a trusted client: it bypasses RLS and
@@ -63,6 +72,11 @@ def require_supabase() -> None:
 def require_turso() -> None:
     if not TURSO_URL or not TURSO_TOKEN:
         raise RuntimeError("Turso is not configured. Set TURSO_DATABASE_URL and TURSO_AUTH_TOKEN in .env")
+
+
+def require_alpaca() -> None:
+    if not ALPACA_KEY_ID or not ALPACA_SECRET:
+        raise RuntimeError("Alpaca is not configured. Set ALPACA_API_KEY and ALPACA_SECRET_KEY in .env")
 
 
 # -------- Helpers --------
