@@ -71,7 +71,12 @@
   min-height: 0;
   max-height: min(34rem, 58vh);
   overflow-y: auto;
-  overscroll-behavior: contain;
+  /* No `contain` here. The rail on a wide screen is capped by the viewport, so a
+     five-strategy list is usually a few dozen pixels taller than its box — and
+     containment then eats the wheel gesture at that boundary, leaving the last
+     row unreachable on a laptop. Letting the scroll chain to the page costs
+     nothing and makes the end of the list reachable the way a reader expects. */
+  overscroll-behavior: auto;
   scrollbar-width: thin;
   scrollbar-color: var(--border-strong) transparent;
 }
