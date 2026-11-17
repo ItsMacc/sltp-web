@@ -110,6 +110,11 @@
   --font-heading: 'Instrument Serif', Georgia, serif;
   --font-mono: 'JetBrains Mono', ui-monospace, monospace;
 
+  /* Stacking order, one place. Menus and calendars portal to the body, so they
+     need a layer above every dialog (1100) and toast (1200); without one they
+     open behind the dialog that spawned them. */
+  --z-popover: 1300;
+
   --text-xs: 0.85rem;
   --text-sm: 1rem;
   --text-base: 1.125rem;
