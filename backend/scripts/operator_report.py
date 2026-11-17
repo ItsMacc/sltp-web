@@ -25,6 +25,9 @@ import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
+
+NY_TZ = ZoneInfo("America/New_York")
 
 import requests
 
@@ -192,7 +195,11 @@ def build_report() -> dict[str, Any]:
     accounts = fetch_auth_accounts()
     gate = fetch_gate_status()
     return {
-        "date": now.date().isoformat(),
+        # The New York date, not the UTC one. The brief goes out at 17:30 ET, and
+        # keyed on UTC a run after 19:00 ET is stamped with tomorrow's date —
+        # which then makes tomorrow's scheduled run look like a duplicate and
+        # skip itself.
+        "date": datetime.now(NY_TZ).date().isoformat(),
         "accounts": summarize_accounts(accounts, now),
         "usage": usage_summary(),
         "deletions": deletion_summary(now),
