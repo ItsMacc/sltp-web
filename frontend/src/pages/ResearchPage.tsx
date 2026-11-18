@@ -326,6 +326,9 @@ export default function ResearchPage({ initialSettings, initialStrategyId }: Res
     }
     window.addEventListener('keydown', onKey)
     document.body.style.overflow = 'hidden'
+    // Searching takes over the screen: the header is hidden for as long as the
+    // sheet is open, so no part of the page frame draws over it.
+    document.body.classList.add('ticker-sheet-open')
     // The sheet is sized from the visual viewport, not from `dvh`. A keyboard
     // that resizes the page shrinks the visual viewport, and one that paints
     // over it (iOS Safari) shrinks it too while moving its offset down; reading
@@ -336,26 +339,26 @@ export default function ResearchPage({ initialSettings, initialStrategyId }: Res
     const root = document.documentElement.style
     const syncViewport = () => {
       const height = viewport?.height ?? window.innerHeight
-      // The visual viewport is only offset from the page when something is
-      // covering it, which in practice is the keyboard. When it is not, fixed
-      // is already measured from the window and the offset is just the scroll
-      // position — adding that would drag the sheet down the screen.
-      const covered = window.innerHeight - height
-      const bandTop = covered > 1 ? (viewport?.offsetTop ?? 0) : 0
-      // The site header is sticky and stacked above the sheet, so the sheet
-      // starts where the header ends: under it, never behind it.
-      const header = document.querySelector('.header-container')
-      const headerBottom = header ? header.getBoundingClientRect().bottom : 0
-      const top = Math.max(bandTop, Math.round(headerBottom))
-      root.setProperty('--ticker-shell-top', `${Math.max(0, top)}px`)
-      root.setProperty('--ticker-shell-height', `${Math.max(0, Math.round(bandTop + height - top))}px`)
+      // How much of the window the visible area does not cover: the keyboard,
+      // and the browser's own bars. Only that much pan can be the keyboard
+      // moving the page; a larger offset is the page's own scroll, and shifting
+      // the sheet by it would drag the sheet off the bottom of the screen.
+      const covered = Math.max(0, window.innerHeight - height)
+      const top = Math.min(Math.max(0, viewport?.offsetTop ?? 0), covered)
+      root.setProperty('--ticker-shell-top', `${Math.round(top)}px`)
+      root.setProperty('--ticker-shell-height', `${Math.round(height)}px`)
     }
     syncViewport()
+    // The browser settles the viewport a moment after the sheet mounts and the
+    // field takes focus, so the numbers get one more read once that is done.
+    const settle = window.setTimeout(syncViewport, 250)
     viewport?.addEventListener('resize', syncViewport)
     viewport?.addEventListener('scroll', syncViewport)
     return () => {
       window.removeEventListener('keydown', onKey)
+      window.clearTimeout(settle)
       document.body.style.overflow = ''
+      document.body.classList.remove('ticker-sheet-open')
       viewport?.removeEventListener('resize', syncViewport)
       viewport?.removeEventListener('scroll', syncViewport)
       root.removeProperty('--ticker-shell-top')

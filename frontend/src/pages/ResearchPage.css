@@ -838,6 +838,13 @@
     display: none;
   }
 
+  /* Searching owns the phone screen. The page frame is gone while it is open,
+     header included: the sticky bar used to sit over the sheet's top edge and
+     push the search field around, so it no longer renders at all. */
+  body.ticker-sheet-open .header-container {
+    visibility: hidden;
+  }
+
   /* The list is the whole screen on a phone. Its box is measured from the
      visual viewport by the page (see --ticker-shell-*), so it ends where the
      browser's visible area ends: above the keyboard, under the status bar,
@@ -856,8 +863,8 @@
     border: 0;
     border-radius: 0;
     box-shadow: none;
-    /* The top edge sits below the sticky header, so the notch is already paid
-       for; the home indicator is not. */
+    /* Nothing above the sheet pays for the notch any more, so it does. */
+    padding-top: env(safe-area-inset-top, 0px);
     padding-bottom: env(safe-area-inset-bottom, 0px);
     transform: none;
   }
