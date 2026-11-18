@@ -838,24 +838,28 @@
     display: none;
   }
 
+  /* The list is the whole screen on a phone. Its box is measured from the
+     visual viewport by the page (see --ticker-shell-*), so it ends where the
+     browser's visible area ends: above the keyboard, under the status bar,
+     with the safe areas padded rather than overlapped. Anchoring to the top
+     instead of lifting the sheet means no state can push the search field
+     off-screen. */
   .ticker-panel.is-open {
     display: flex;
     position: fixed;
     left: 0;
     right: 0;
-    bottom: 0;
+    top: var(--ticker-shell-top, 0px);
+    bottom: auto;
+    height: var(--ticker-shell-height, 100dvh);
     z-index: 80;
-    /* The sheet has to live in the part of the screen the keyboard leaves over.
-       dvh follows it where the browser resizes the page, and the viewport-
-       driven lift covers the browsers that draw the keyboard on top. */
-    height: min(80vh, 34rem);
-    height: min(80dvh, 34rem);
-    /* Whatever the keyboard covers is space the sheet cannot use, so the lift
-       and the height limit are the same number. */
-    max-height: calc(100dvh - 3rem - var(--ticker-keyboard, 0px));
-    transform: translateY(calc(-1 * var(--ticker-keyboard, 0px)));
-    border-radius: 0.625rem 0.625rem 0 0;
-    box-shadow: 0 12px 24px -4px rgba(0, 0, 0, 0.18);
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    /* The top edge sits below the sticky header, so the notch is already paid
+       for; the home indicator is not. */
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    transform: none;
   }
 
   /* Clear the search and close the sheet are two jobs; a rule between them
@@ -868,8 +872,38 @@
     border-left: 1px solid var(--border-subtle);
   }
 
+  /* The search field, the column headings and the count keep their rows; the
+     list takes whatever is left and scrolls inside it. `min-height: 0` is what
+     lets a flex child shrink below its content and actually scroll. */
   .ticker-panel.is-open .ticker-scroll {
     max-height: none;
+    flex: 1 1 auto;
+    min-height: 0;
+    scroll-padding-block: 0.35rem;
+  }
+
+  .ticker-panel.is-open .ticker-search,
+  .ticker-panel.is-open .ticker-head,
+  .ticker-panel.is-open .ticker-foot {
+    flex: 0 0 auto;
+  }
+
+  /* A list ends wherever it ends, but a row sliced flush against the footer
+     reads as a broken layout. The footer fades the last row into itself, so the
+     cut looks like a sheet edge rather than clipped text. */
+  .ticker-panel.is-open .ticker-foot {
+    position: relative;
+  }
+
+  .ticker-panel.is-open .ticker-foot::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 100%;
+    height: 1.75rem;
+    pointer-events: none;
+    background: linear-gradient(to bottom, transparent, var(--bg-surface-hover));
   }
 
   .quote-panel {

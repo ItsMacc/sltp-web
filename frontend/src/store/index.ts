@@ -11,6 +11,8 @@
 // the watchlist — never the files directly.
 export {
   bootMarketSync,
+  resyncMarketData,
+  marketSyncBooted,
   prefetchOlder,
   useMarketSyncStatus,
   getSyncStatus,

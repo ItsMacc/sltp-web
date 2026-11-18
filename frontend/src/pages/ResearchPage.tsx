@@ -326,27 +326,40 @@ export default function ResearchPage({ initialSettings, initialStrategyId }: Res
     }
     window.addEventListener('keydown', onKey)
     document.body.style.overflow = 'hidden'
-    // How much of the screen the keyboard is covering right now. Browsers that
-    // resize the page for the keyboard report nothing here; the ones that paint
-    // it over the sheet (iOS Safari) report the full keyboard height, which the
-    // sheet then lifts itself by.
+    // The sheet is sized from the visual viewport, not from `dvh`. A keyboard
+    // that resizes the page shrinks the visual viewport, and one that paints
+    // over it (iOS Safari) shrinks it too while moving its offset down; reading
+    // both numbers means the sheet always occupies exactly the part of the
+    // screen the browser is showing, so the search field cannot end up under
+    // the status bar and the footer cannot end up under the keyboard.
     const viewport = window.visualViewport
-    const syncKeyboard = () => {
-      const covered = viewport ? window.innerHeight - viewport.height : 0
-      document.documentElement.style.setProperty(
-        '--ticker-keyboard',
-        `${Math.max(0, Math.round(covered))}px`,
-      )
+    const root = document.documentElement.style
+    const syncViewport = () => {
+      const height = viewport?.height ?? window.innerHeight
+      // The visual viewport is only offset from the page when something is
+      // covering it, which in practice is the keyboard. When it is not, fixed
+      // is already measured from the window and the offset is just the scroll
+      // position — adding that would drag the sheet down the screen.
+      const covered = window.innerHeight - height
+      const bandTop = covered > 1 ? (viewport?.offsetTop ?? 0) : 0
+      // The site header is sticky and stacked above the sheet, so the sheet
+      // starts where the header ends: under it, never behind it.
+      const header = document.querySelector('.header-container')
+      const headerBottom = header ? header.getBoundingClientRect().bottom : 0
+      const top = Math.max(bandTop, Math.round(headerBottom))
+      root.setProperty('--ticker-shell-top', `${Math.max(0, top)}px`)
+      root.setProperty('--ticker-shell-height', `${Math.max(0, Math.round(bandTop + height - top))}px`)
     }
-    syncKeyboard()
-    viewport?.addEventListener('resize', syncKeyboard)
-    viewport?.addEventListener('scroll', syncKeyboard)
+    syncViewport()
+    viewport?.addEventListener('resize', syncViewport)
+    viewport?.addEventListener('scroll', syncViewport)
     return () => {
       window.removeEventListener('keydown', onKey)
       document.body.style.overflow = ''
-      viewport?.removeEventListener('resize', syncKeyboard)
-      viewport?.removeEventListener('scroll', syncKeyboard)
-      document.documentElement.style.removeProperty('--ticker-keyboard')
+      viewport?.removeEventListener('resize', syncViewport)
+      viewport?.removeEventListener('scroll', syncViewport)
+      root.removeProperty('--ticker-shell-top')
+      root.removeProperty('--ticker-shell-height')
     }
   }, [listOpen])
 

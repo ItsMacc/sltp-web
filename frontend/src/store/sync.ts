@@ -1097,15 +1097,34 @@ export async function previewDataPlan(years: DataPlanYears): Promise<DataPlanPre
  */
 export async function applyDataPlan(years: DataPlanYears): Promise<void> {
   writeDataPlanYears(years);
+  await resyncMarketData();
+  if (status.phase === 'error') {
+    throw new Error(status.error ?? 'Market data could not be prepared.');
+  }
+}
+
+/** Whether this page has already run the boot once. */
+export function marketSyncBooted(): boolean {
+  return bootPromise !== null;
+}
+
+/**
+ * Re-runs the boot after a choice that decides what this device holds: the plan
+ * window, or the update horizon that decides when the manifest is re-read.
+ *
+ * The horizon is read once per boot, so a setting that arrives after the first
+ * boot (signing in, when the account keeps a tighter horizon than a visitor's
+ * default) would otherwise wait for a reload. Reset the boot's memory and run
+ * the same reconciliation again; nothing is downloaded twice, because only the
+ * files whose byte count changed are fetched.
+ */
+export async function resyncMarketData(): Promise<void> {
   // A device that already has a cache is not a new device: re-planning must
   // not spend the gate's reserve as if this were a first visit.
   const wasFirstSync = firstSync;
   resetMarketSyncForTests();
   firstSync = wasFirstSync;
   await bootMarketSync();
-  if (status.phase === 'error') {
-    throw new Error(status.error ?? 'Market data could not be prepared.');
-  }
 }
 
 /** For tests and sign-out cleanup: forget the boot so the next call reruns. */

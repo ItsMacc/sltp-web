@@ -31,7 +31,12 @@ import SuccessToast from './ui/SuccessToast';
 import { carryGuestLab } from './lab/carryGuest';
 import { Loader, LoaderOverlay } from './ui/Loader';
 import { clearRememberedLogin, sessionExpired, supabase } from '../lib/supabase';
-import { bootMarketSync, useMarketSyncStatus } from './store';
+import {
+  bootMarketSync,
+  marketSyncBooted,
+  resyncMarketData,
+  useMarketSyncStatus,
+} from './store';
 import { invalidatePortfolio, provisionAccount } from '../lib/api';
 import { seedUserAwards } from '../lib/learnApi';
 import { pageTitleFor, usePageTitle } from './usePageTitle';
@@ -254,6 +259,24 @@ export default function App() {
     const timer = window.setTimeout(() => void bootMarketSync(), 400);
     return () => window.clearTimeout(timer);
   }, [activeTab]);
+
+  // The update horizon is read once per boot. A visitor starts on the weekly
+  // default, and an account may keep a daily one, so signing in has to ask the
+  // sync again instead of leaving yesterday's data in place until a reload.
+  // Only when a boot already happened: a page that never started one reads the
+  // account's horizon on its own first run.
+  const seenUserIdRef = useRef<string | null | undefined>(undefined);
+  useEffect(() => {
+    const id = user?.id ?? null;
+    if (seenUserIdRef.current === undefined) {
+      seenUserIdRef.current = id;
+      return;
+    }
+    if (seenUserIdRef.current === id) return;
+    seenUserIdRef.current = id;
+    if (!marketSyncBooted()) return;
+    void resyncMarketData().catch(() => undefined);
+  }, [user?.id]);
 
   // Navigation is manual here (tabs, the docs route, anchor jumps). Leaving the
   // browser's own scroll restoration on lets it yank a new page back to a saved
