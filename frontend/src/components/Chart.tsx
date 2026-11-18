@@ -317,24 +317,33 @@ export default function Chart({
     return () => element.removeEventListener('wheel', onWheel)
   }, [fit, setVisible])
 
-  // The equity curve is one fitted plot of the whole run: there is no window
-  // to pan and a candle is two pixels wide, so a finger scrubs it instead of
-  // trying to hit a bar.
-  const scrub = variant === 'equity'
-
+  // A finger reads the chart rather than dragging it, in both charts: the
+  // nearest session follows the thumb, so a value is readable mid-gesture
+  // instead of only on a bar that happened to be big enough to tap. Panning
+  // moved to two fingers, next to the pinch it already shared the second one
+  // with, so nothing the drag used to do was lost.
   const dragRef = useRef<{ x: number; end: number } | null>(null)
   const [dragging, setDragging] = useState(false)
-  // A finger that has not travelled yet is a tap; once it moves it is a pan.
+  // A finger that has not travelled yet is a tap; once it moves it is a scrub.
   // Showing the candle on contact is what used to freeze the chart under a
   // thumb, so the tooltip waits for the finger to lift.
   const touchRef = useRef<{ x: number; y: number; moved: boolean } | null>(null)
   const pointersRef = useRef(new Map<number, { x: number; y: number }>())
-  const pinchRef = useRef<{ distance: number; count: number; end: number } | null>(null)
+  const pinchRef = useRef<{ distance: number; centerX: number; count: number; end: number } | null>(
+    null,
+  )
 
   const pinchDistance = () => {
     const points = [...pointersRef.current.values()]
     if (points.length < 2) return 0
     return Math.hypot(points[0]!.x - points[1]!.x, points[0]!.y - points[1]!.y)
+  }
+
+  /** Midpoint of the two fingers, which is what a two-finger drag moves. */
+  const pinchCentreX = () => {
+    const points = [...pointersRef.current.values()]
+    if (points.length < 2) return 0
+    return (points[0]!.x + points[1]!.x) / 2
   }
 
   const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
@@ -343,6 +352,7 @@ export default function Chart({
       if (!fit && pointersRef.current.size === 2) {
         pinchRef.current = {
           distance: pinchDistance(),
+          centerX: pinchCentreX(),
           count,
           end: safeEnd,
         }
@@ -357,6 +367,8 @@ export default function Chart({
       touchRef.current = { x: event.clientX, y: event.clientY, moved: false }
       setHover(null)
       setPinned(null)
+      // A single finger never pans here; it reads the chart in the move handler.
+      return
     }
 
     if (fit) return
@@ -381,13 +393,17 @@ export default function Chart({
       }
 
       if (pinchRef.current) {
+        const pinch = pinchRef.current
         const distance = pinchDistance()
+        let next = pinch.count
         if (distance > 0) {
-          const pinch = pinchRef.current
-          const next = clamp(Math.round(pinch.count * (pinch.distance / distance)), MIN_VISIBLE, ceiling)
+          next = clamp(Math.round(pinch.count * (pinch.distance / distance)), MIN_VISIBLE, ceiling)
           setVisible(next)
-          setEnd(clamp(pinch.end, next, bars.length))
         }
+        // The same two fingers carry the window sideways, so panning survives
+        // the move of the one-finger gesture to reading values.
+        const travelled = (pinch.centerX - pinchCentreX()) / Math.max(1, slot)
+        setEnd(clamp(Math.round(pinch.end + travelled), next, bars.length))
         return
       }
 
@@ -395,25 +411,21 @@ export default function Chart({
         if (Math.abs(event.clientX - touch.x) > 6 || Math.abs(event.clientY - touch.y) > 6) {
           touch.moved = true
         }
+        // A downward gesture is the page scrolling past the chart, not a read.
+        // The browser owns that one (the plot is touch-action: pan-y).
+        const dx = Math.abs(event.clientX - touch.x)
+        const dy = Math.abs(event.clientY - touch.y)
+        if (dy > 6 && dy > dx) return
       }
 
       // Scrubbing: the nearest session follows the finger, so the value is
       // readable while dragging instead of only after a lift on a bar that was
-      // never big enough to hit.
-      if (scrub && windowData.length > 0 && px <= plotWidth) {
+      // never big enough to hit. The price chart shares this with the equity
+      // curve now; a touch drag here used to pan instead.
+      if (windowData.length > 0 && px <= plotWidth) {
         const index = clamp(Math.floor(px / slot), 0, windowData.length - 1)
         setHover({ index, x: index * slot + slot / 2, y: py })
         return
-      }
-
-      if (fit) return
-      if (drag) {
-        // The first few pixels of a touch stay still, so a swipe pans cleanly
-        // instead of nudging the window before it is recognised as a drag.
-        if (touch && !touch.moved) return
-        const moved = (drag.x - event.clientX) / Math.max(1, slot)
-        setEnd(clamp(Math.round(drag.end + moved), count, bars.length))
-        setHover(null)
       }
       return
     }
@@ -559,7 +571,7 @@ export default function Chart({
       ? 'Drag along the curve to read any session. It follows your finger.'
       : 'Hover anywhere along the curve for that session’s open, close and day.'
     : isTouch
-      ? `Swipe to move, pinch or use +/− to zoom. Tap a ${detailTarget} for detail; tap empty space to dismiss.`
+      ? `Drag along the chart to read any session; pinch or drag with two fingers to zoom and pan. Tap a ${detailTarget} to pin it, tap empty space to dismiss.`
       : `${zoomModifier} + scroll to zoom, drag to pan, hover a ${detailTarget} for detail${showVolume ? ' and volume' : ''}.`
 
   return (

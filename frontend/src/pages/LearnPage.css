@@ -445,7 +445,10 @@
   font-size: 0.9375rem;
   white-space: nowrap;
   cursor: pointer;
-  scroll-snap-align: start;
+  /* Chips settle in the middle of the bar. Snapping to ":start" pulled the bar
+     back off the tab the reader had just chosen, so the centred position has to
+     be the position the snap wants too. */
+  scroll-snap-align: center;
 }
 
 .learn-switcher-tab:hover { color: var(--text-primary); }
