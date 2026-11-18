@@ -751,9 +751,10 @@
 @media (min-width: 64rem) {
   .strategy-library {
     position: sticky;
-    top: 5rem;
+    /* Measured header height plus the same breath the other rails keep. */
+    top: calc(var(--site-header-h, 5rem) + var(--space-sm));
     align-self: start;
-    max-height: calc(100vh - 6.5rem);
+    max-height: calc(100vh - var(--site-header-h, 5rem) - var(--space-lg));
   }
 
   .strategy-library-scroll {

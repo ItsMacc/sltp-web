@@ -18,7 +18,7 @@
   padding-top: 3.5rem;
   border-top: 1px solid var(--border-subtle);
   min-width: 0;
-  scroll-margin-top: 5rem;
+  scroll-margin-top: calc(var(--site-header-h, 5rem) + var(--space-sm));
 }
 
 .research-guide-head {

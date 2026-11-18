@@ -138,8 +138,9 @@
 .st-legal-section {
   padding-block: calc(var(--space-xl) * 0.7);
   border-top: 1px solid var(--border-subtle);
-  /* Clears the sticky header (≈65px) with room to spare on an anchor jump. */
-  scroll-margin-top: calc(var(--space-2xl) + var(--space-sm));
+  /* Clears the sticky header with room to spare on an anchor jump. 72px of
+     spacing could not clear the 78px desktop header, so it is measured now. */
+  scroll-margin-top: calc(var(--site-header-h, 5rem) + var(--space-sm));
 }
 
 .st-legal-section-heading {

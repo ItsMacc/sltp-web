@@ -65,7 +65,8 @@
 
 .strat-index {
   position: sticky;
-  top: 5rem; /* clears the sticky header, as the other rails do */
+  /* Same measured clearance the Docs rails use. */
+  top: calc(var(--site-header-h, 5rem) + var(--space-sm));
   display: grid;
   gap: var(--space-2xs);
 }
@@ -170,7 +171,7 @@
   min-width: 0;
   /* Clicking a rail item scrolls this card to the top, and the sticky header
      must not sit on the first line of it. */
-  scroll-margin-top: 5rem;
+  scroll-margin-top: calc(var(--site-header-h, 5rem) + var(--space-sm));
   padding: calc(var(--space-md) * 1.75);
   background: var(--bg-surface);
   border: 1px solid var(--border-subtle);

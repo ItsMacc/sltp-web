@@ -474,7 +474,8 @@
      the section gap between them are the double break. */
   padding-top: var(--space-xl);
   border-top: 1px solid var(--border-subtle);
-  scroll-margin-top: 5rem; /* clears the sticky site header, as the rails do */
+  /* Sticky header plus a breath, measured rather than guessed. */
+  scroll-margin-top: calc(var(--site-header-h, 5rem) + var(--space-sm));
 }
 
 .home-tools-head {
