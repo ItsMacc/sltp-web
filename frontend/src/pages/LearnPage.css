@@ -270,7 +270,8 @@
 .learn-shelf {
   padding: 1.125rem 0 1.25rem;
   border-bottom: 1px solid var(--border-subtle);
-  scroll-margin-top: 5rem; /* clears the sticky site header, as the rails do */
+  /* Clears the site header and the level bar under it. */
+  scroll-margin-top: calc(var(--site-header-h, 5rem) + var(--learn-sticky-h) + 1rem);
 }
 
 .learn-shelf-head {
@@ -406,12 +407,23 @@
 
 /* ---------- Level switcher ---------- */
 
+/* The level bar parks directly under the site header, not at the top of the
+   screen. With `top: 0` it sat in the header's own band (the header is z-index
+   100, this bar 50), so scrolling up on Learn hid the tabs completely behind
+   the header. --site-header-h is measured and published by Header.tsx. */
 .learn-switcher-shell {
   position: sticky;
-  top: 0;
+  top: var(--site-header-h, 5rem);
   z-index: 50;
   background: var(--bg-canvas);
   border-bottom: 1px solid var(--border-subtle);
+  transition: top 0.25s ease;
+}
+
+/* The header slides away while reading; the bar follows it up rather than
+   floating with a gap over the page. */
+body.site-header-hidden .learn-switcher-shell {
+  top: 0;
 }
 
 .learn-switcher {
@@ -519,7 +531,7 @@
 .learn-lesson h1,
 .learn-lesson h2,
 .learn-lesson h3 {
-  scroll-margin-top: calc(var(--learn-sticky-h) + 1rem);
+  scroll-margin-top: calc(var(--site-header-h, 5rem) + var(--learn-sticky-h) + 1rem);
 }
 
 .learn-kicker {
@@ -846,9 +858,14 @@
 
 .learn-rail {
   position: sticky;
-  top: calc(var(--learn-sticky-h) + 1rem);
+  top: calc(var(--site-header-h, 5rem) + var(--learn-sticky-h) + 1rem);
   padding-right: 1rem;
   border-right: 1px solid var(--border-subtle);
+  transition: top 0.25s ease;
+}
+
+body.site-header-hidden .learn-rail {
+  top: calc(var(--learn-sticky-h) + 1rem);
 }
 
 .learn-rail-title {

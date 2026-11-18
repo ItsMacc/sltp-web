@@ -1,5 +1,5 @@
 // Header.tsx — Top nav: brand, links, auth actions, mobile drawer
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Button from '../ui/Button';
 import Logo from './Logo';
 import UserMenu from './UserMenu';
@@ -39,6 +39,8 @@ export default function Header({
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [hidden, setHidden] = useState(false);
   const [focusWithin, setFocusWithin] = useState(false);
+  const headerRef = useRef<HTMLElement>(null);
+  const hiddenNow = hidden && !mobileMenuOpen && !focusWithin;
 
   /* Hide while scrolling down, reveal on any scroll up or at the top.
      Small threshold so trackpad jitter doesn't flicker the bar. */
@@ -63,6 +65,27 @@ export default function Header({
     return () => window.removeEventListener('scroll', onScroll);
   }, []);
 
+  // Pages that keep a bar of their own under the header (
+  // the Learn level tabs, the lesson rail) need its height and whether it is on
+  // screen, or the bar parks on top of the header and disappears behind it.
+  useEffect(() => {
+    const root = document.documentElement;
+    const publish = () => {
+      const element = headerRef.current;
+      if (element) root.style.setProperty('--site-header-h', `${Math.round(element.offsetHeight)}px`);
+    };
+    publish();
+    const element = headerRef.current;
+    const observer = element ? new ResizeObserver(publish) : null;
+    if (element && observer) observer.observe(element);
+    return () => observer?.disconnect();
+  }, []);
+
+  useEffect(() => {
+    // Mirrored onto the body so a sticky sibling can follow the header out.
+    document.body.classList.toggle('site-header-hidden', hiddenNow);
+  }, [hiddenNow]);
+
   const handleTabClick = (id: string) => {
     onTabChange(id);
     setMobileMenuOpen(false);
@@ -70,7 +93,8 @@ export default function Header({
 
   return (
     <header
-      className={`header-container ${hidden && !mobileMenuOpen && !focusWithin ? 'is-hidden' : ''}`}
+      ref={headerRef}
+      className={`header-container ${hiddenNow ? 'is-hidden' : ''}`}
       onFocus={() => setFocusWithin(true)}
       onBlur={(e) => {
         if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setFocusWithin(false);

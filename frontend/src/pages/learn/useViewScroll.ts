@@ -40,10 +40,18 @@ export function useViewScroll(
         shelfRef?.current?.scrollIntoView({ block: 'start', inline: 'nearest' });
       } else {
         const stickyHeight = switcherRef.current?.offsetHeight ?? 0;
+        // The level bar parks under the site header, so the anchor clears both.
+        // The header's own height is used whether or not it is on screen right
+        // now: a header that slides back in must never land on top of the view
+        // this scroll just placed, and a few spare pixels below the bar read as
+        // whitespace, not as a clipped title. `offsetHeight` ignores the
+        // slide-out transform, so this is the bar's real height either way.
+        const header = document.querySelector<HTMLElement>('.header-container');
+        const headerHeight = header?.offsetHeight ?? 0;
         const viewTop = viewRef.current
           ? viewRef.current.getBoundingClientRect().top + window.scrollY
           : 0;
-        window.scrollTo(0, Math.max(0, viewTop - stickyHeight));
+        window.scrollTo(0, Math.max(0, viewTop - stickyHeight - headerHeight));
       }
     };
 
