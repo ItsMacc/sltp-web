@@ -746,15 +746,25 @@
 
 /* ---------- Wide: the list is a rail that stays in view ----------
    It is as tall as its rows and no taller, so a long run never leaves an
-   empty bordered box beside the chart. Past the viewport it scrolls itself. */
+   empty bordered box beside the chart. Past the viewport it scrolls itself.
+
+   Sticky travel is the grid row minus the rail, so it only exists once the
+   results column is taller than the list: with a backtest on screen the row is
+   ~1700px against the rail's ~600px and the rail pins under the header for the
+   length of the chart and its metrics. Before a run the row is exactly the
+   rail's height (it is the tallest thing in it), travel is zero, and `sticky`
+   was a no-op that just scrolled away — hence `has-result`. */
 
 @media (min-width: 64rem) {
   .strategy-library {
+    align-self: start;
+    max-height: calc(100vh - var(--site-header-h, 5rem) - var(--space-lg));
+  }
+
+  .strategy-workspace.has-result .strategy-library {
     position: sticky;
     /* Measured header height plus the same breath the other rails keep. */
     top: calc(var(--site-header-h, 5rem) + var(--space-sm));
-    align-self: start;
-    max-height: calc(100vh - var(--site-header-h, 5rem) - var(--space-lg));
   }
 
   .strategy-library-scroll {

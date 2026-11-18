@@ -413,7 +413,10 @@ export default function StrategyChart({
         <ErrorToast message={inputError || runError!} onClose={handleCloseErrors} />
       )}
 
-      <div className="strategy-workspace">
+      {/* `has-result` is what lets the rail stick: a sticky rail can only
+          travel inside its own grid row, and before a run the rail is the
+          tallest thing in that row. */}
+      <div className={`strategy-workspace${backtestResult ? ' has-result' : ''}`}>
         <aside className="strategy-library" aria-label="Strategy library">
           <div className="strategy-library-head">
             <span className="strategy-library-title">Strategies</span>
