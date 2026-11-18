@@ -53,7 +53,7 @@ class Benchmark(Strategy):
         if ticker in self.open_tickers:
             return None
 
-        close: float = float(data.close_price[-1])
+        close: float = float(data.closes[-1])
         if close <= 0:
             return None
 

@@ -34,6 +34,7 @@ class StatisticalMeanReversionStrategy(Strategy):
         self.MAX_POSITIONS: int = 20
         self.MAX_LOTS_PER_TICKER: int = 1
         self.REBALANCE_FREQUENCY: RebalanceFrequency = RebalanceFrequency.YEARLY
+        self.LOOKBACK_BARS: int = 252
 
         # Universe
         self.UNIVERSE_SIZE: int = 100
@@ -75,10 +76,10 @@ class StatisticalMeanReversionStrategy(Strategy):
         scored_etfs: list[tuple[str, float]] = []
         scored_stocks: list[tuple[str, float]] = []
         for ticker, history in histories.items():
-            if history is None or len(history.close_price) < self.LIQUIDITY_BARS:
+            if history is None or len(history.closes) < self.LIQUIDITY_BARS:
                 continue
-            closes = history.close_price[-self.LIQUIDITY_BARS:]
-            volumes = history.volume[-self.LIQUIDITY_BARS:]
+            closes = history.closes[-self.LIQUIDITY_BARS:]
+            volumes = history.volumes[-self.LIQUIDITY_BARS:]
             dollar_volume: float = float(np.sum(closes * volumes))
             (scored_etfs if ticker in known_etfs else scored_stocks).append((ticker, dollar_volume))
 
@@ -97,7 +98,7 @@ class StatisticalMeanReversionStrategy(Strategy):
         if ticker in self.open_tickers:
             return None
 
-        closes = data.close_price
+        closes = data.closes
         close: float = float(closes[-1])
         stdev: float = float(np.std(closes[-self.Z_SCORE_PERIOD:], ddof=1))
         if close <= 0 or stdev == 0:
@@ -130,7 +131,7 @@ class StatisticalMeanReversionStrategy(Strategy):
 
     # Exit once RSI recovers, with a threshold that loosens as price stretches further out.
     def should_exit(self, ticker: str, trade: Trade, history: StockData | None = None) -> bool:
-        closes = (history if history is not None else trade.history).close_price
+        closes = (history if history is not None else trade.history).closes
         stdev: float = float(np.std(closes[-self.Z_SCORE_PERIOD:], ddof=1))
         if stdev == 0:
             return False

@@ -201,7 +201,7 @@ else:
           kind: 'code',
           file: 'mixed exits',
           code: `def on_signal(self, ticker, data):
-    close = float(data.close_price[-1])
+    close = float(data.closes[-1])
     return Order(
         ticker=ticker,
         position_type=PositionType.LONG,

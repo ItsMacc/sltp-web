@@ -173,11 +173,11 @@ def stock_history(ticker: str, timeframe: str = "1y") -> dict:
     bars = [
         {
             "date": dates[i],
-            "open": float(history.open_price[i]),
-            "high": float(history.high[i]),
-            "low": float(history.low[i]),
-            "close": float(history.close_price[i]),
-            "volume": float(history.volume[i]),
+            "open": float(history.opens[i]),
+            "high": float(history.highs[i]),
+            "low": float(history.lows[i]),
+            "close": float(history.closes[i]),
+            "volume": float(history.volumes[i]),
         }
         for i in range(len(dates))
     ]

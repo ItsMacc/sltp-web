@@ -214,7 +214,7 @@ Order(..., allocation=0.25, sizing=OrderSizing.AVAILABLE)`,
         {
           kind: 'code',
           file: 'levels from the signal close',
-          code: `close = float(data.close_price[-1])
+          code: `close = float(data.closes[-1])
 
 return Order(
     ticker=ticker,
@@ -269,7 +269,6 @@ return Order(
           file: 'date views',
           code: `latest = data.dates[-1]          # "2024-03-01"
 last_ten = data.dates[-10:]      # DateLabels view, still decodes on read
-grid = data.labels               # numpy array of "<U10" strings
 
 # Dates stay out of orders: the fill is stamped on Trade.entry_date.
 order = Order(ticker="AAPL", position_type=PositionType.LONG, allocation=0.1, stop_loss=0.0, take_profit=0.0)`,
@@ -291,44 +290,50 @@ order = Order(ticker="AAPL", position_type=PositionType.LONG, allocation=0.1, st
     {
       slug: 'stock-data',
       title: 'StockData',
-      lead: "StockData holds one ticker's daily bars as parallel read-only arrays.",
+      lead: "StockData holds one ticker's daily bars as parallel read-only arrays, and the window of them a callback may see.",
       source: 'app/engine/utils/StockData.py',
       blocks: [
         {
           kind: 'params',
           rows: [
             { name: 'ticker', type: 'str', description: 'The symbol these bars belong to.' },
-            { name: 'date_codes', type: 'np.ndarray[int32]', description: <>One day number per bar. The legacy keyword <C>dates</C> is still accepted.</> },
-            { name: 'open_price', type: 'np.ndarray', description: 'Session open.' },
-            { name: 'high', type: 'np.ndarray', description: 'Session high.' },
-            { name: 'low', type: 'np.ndarray', description: 'Session low.' },
-            { name: 'close_price', type: 'np.ndarray', description: 'Session close. The field most strategies read.' },
-            { name: 'volume', type: 'np.ndarray', description: 'Shares traded.' },
+            { name: 'date_codes', type: 'np.ndarray[int32]', description: 'One day number per bar.' },
+            { name: 'opens', type: 'np.ndarray', description: 'Session open.' },
+            { name: 'highs', type: 'np.ndarray', description: 'Session high.' },
+            { name: 'lows', type: 'np.ndarray', description: 'Session low.' },
+            { name: 'closes', type: 'np.ndarray', description: 'Session close. The field most strategies read.' },
+            { name: 'volumes', type: 'np.ndarray', description: 'Shares traded.' },
           ],
         },
-        { kind: 'h2', id: 'no-lookahead', text: 'The slice is the contract' },
+        { kind: 'h2', id: 'no-lookahead', text: 'The window is the contract' },
         {
           kind: 'p',
-          text: <>The engine copies a history up to the current session before it calls a hook. Every array ends on the bar you may act on. <C>close_price[-1]</C> is today's close, and no index exists for tomorrow.</>,
+          text: <>The engine builds one <C>StockData</C> per ticker for the whole run and moves its window before each callback. Every array ends on the bar you may act on: <C>closes[-1]</C> is today's close, and no index reaches tomorrow. <C>len(data)</C> is the number of bars in the window; <C>data.window</C> is the <C>(start, end)</C> pair behind it.</>,
         },
         {
           kind: 'callout',
           tone: 'warning',
           title: 'Do not keep a StockData across days',
-          text: <>Each session hands you a new slice. Keeping yesterday's object to compare with today puts stale values in your signal. Read the number you need and store that.</>,
+          text: <>The object is shared and the window keeps moving. A reference kept from yesterday now covers yesterday and today, so comparing against it reads bars the decision could not have seen. Store the numbers you need, or copy the array with <C>data.closes.copy()</C>.</>,
+        },
+        {
+          kind: 'callout',
+          tone: 'note',
+          title: 'Equality is identity',
+          text: <>Two histories are equal only when they are the same object. <C>a == b</C> compares identity and never touches the bars, and a history works as a dictionary key.</>,
         },
         { kind: 'h2', id: 'read-only', text: 'The arrays are read-only' },
         {
           kind: 'p',
-          text: <>Every array is marked non-writeable when the object is built. <C>data.close_price[-1] = 5</C> raises <C>ValueError: assignment destination is read-only</C>. Compute into a new array instead.</>,
+          text: <>Every array is marked non-writeable when the object is built. <C>data.closes[-1] = 5</C> raises <C>ValueError: assignment destination is read-only</C>. Compute into a new array instead.</>,
         },
         {
           kind: 'code',
           file: 'reading a history',
           code: `import numpy as np
 
-close = float(data.close_price[-1])
-window = data.close_price[-20:]
+close = float(data.closes[-1])
+window = data.closes[-20:]
 average = float(np.mean(window))
 
 if close < average:
@@ -353,7 +358,7 @@ if close < average:
           rows: [
             { name: 'id', type: 'int', description: 'Unique within the run. Assigned at fill.' },
             { name: 'ticker', type: 'str', description: 'The symbol.' },
-            { name: 'history', type: 'StockData', description: <>The bars as of entry. The engine refreshes it to the current session before calling <C>should_exit</C>.</> },
+            { name: 'history', type: 'StockData', description: <>The ticker&apos;s bars, ending on the session <C>should_exit</C> is called for. It is the engine&apos;s own object, so read it inside the call.</> },
             { name: 'position_type', type: 'PositionType', description: 'LONG or SHORT.' },
             { name: 'entry_date', type: 'str', description: 'The session the order filled.' },
             { name: 'entry_price', type: 'float', description: 'The fill after slippage, rounded to two decimals.' },

@@ -73,7 +73,7 @@ class TwoFunds(Strategy):
     def on_signal(self, ticker, data):
         if ticker in self.open_tickers:
             return None
-        close = float(data.close_price[-1])
+        close = float(data.closes[-1])
         return Order(
             ticker=ticker,
             position_type=PositionType.LONG,

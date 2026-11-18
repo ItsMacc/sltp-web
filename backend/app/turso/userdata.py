@@ -1076,7 +1076,7 @@ class MovingAverageCrossover(Strategy):
     def on_signal(self, ticker: str, data: StockData) -> Order | None:
         if ticker in self.open_tickers:
             return None
-        closes = data.close_price
+        closes = data.closes
         if len(closes) < 51:
             return None
 
@@ -1122,7 +1122,7 @@ class TwentyDayBreakout(Strategy):
     def on_signal(self, ticker: str, data: StockData) -> Order | None:
         if ticker in self.open_tickers:
             return None
-        closes = data.close_price
+        closes = data.closes
         if len(closes) < 21:
             return None
 
@@ -1172,7 +1172,7 @@ class Momentum(Strategy):
     def on_signal(self, ticker: str, data: StockData) -> Order | None:
         if ticker in self.open_tickers:
             return None
-        closes = data.close_price
+        closes = data.closes
         if momentum(closes, 20) <= 0.03:
             return None
 

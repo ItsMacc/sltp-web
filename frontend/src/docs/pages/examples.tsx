@@ -103,10 +103,10 @@ class FiveTen(Strategy):
     def initialize_universe(self, current_date, histories):
         ranked = []
         for ticker, history in histories.items():
-            if len(history.close_price) < self.MIN_BARS_REQUIRED:
+            if len(history.closes) < self.MIN_BARS_REQUIRED:
                 continue
             dollar_volume = float(
-                np.sum(history.close_price[-60:] * history.volume[-60:])
+                np.sum(history.closes[-60:] * history.volumes[-60:])
             )
             ranked.append((ticker, dollar_volume))
 
@@ -119,9 +119,9 @@ class FiveTen(Strategy):
         if ticker in self.open_tickers:
             return None
 
-        close = float(data.close_price[-1])
-        fast = float(self._sma(data.close_price, 20)[-1])
-        slow = float(self._sma(data.close_price, 50)[-1])
+        close = float(data.closes[-1])
+        fast = float(self._sma(data.closes, 20)[-1])
+        slow = float(self._sma(data.closes, 50)[-1])
         if np.isnan(fast) or np.isnan(slow) or close <= slow or fast <= slow:
             return None
 
@@ -181,7 +181,7 @@ class Breakout(Strategy):
         self.tickers.clear()
         self.add_tickers([
             ticker for ticker, history in histories.items()
-            if len(history.close_price) >= self.MIN_BARS_REQUIRED
+            if len(history.closes) >= self.MIN_BARS_REQUIRED
         ][:200])
         return bool(self.tickers)
 
@@ -189,8 +189,8 @@ class Breakout(Strategy):
         if ticker in self.open_tickers:
             return None
 
-        close = float(data.close_price[-1])
-        prior_high = float(np.max(data.high[-self.BREAKOUT_BARS - 1:-1]))
+        close = float(data.closes[-1])
+        prior_high = float(np.max(data.highs[-self.BREAKOUT_BARS - 1:-1]))
         if close <= prior_high:
             return None
 
@@ -262,10 +262,10 @@ class Rotation(Strategy):
     def _ranked(self, histories, limit):
         scored = []
         for ticker, history in histories.items():
-            if len(history.close_price) < self.LOOKBACK:
+            if len(history.closes) < self.LOOKBACK:
                 continue
             value = float(np.sum(
-                history.close_price[-self.LOOKBACK:] * history.volume[-self.LOOKBACK:]
+                history.closes[-self.LOOKBACK:] * history.volumes[-self.LOOKBACK:]
             ))
             scored.append((ticker, value))
         scored.sort(key=lambda pair: pair[1], reverse=True)
@@ -362,7 +362,7 @@ class Breakdown(Strategy):
         self.tickers.clear()
         self.add_tickers([
             ticker for ticker, history in histories.items()
-            if len(history.close_price) >= self.MIN_BARS_REQUIRED
+            if len(history.closes) >= self.MIN_BARS_REQUIRED
         ][:200])
         return bool(self.tickers)
 
@@ -370,8 +370,8 @@ class Breakdown(Strategy):
         if ticker in self.open_tickers:
             return None
 
-        close = float(data.close_price[-1])
-        mean = float(self._sma(data.close_price, 20)[-1])
+        close = float(data.closes[-1])
+        mean = float(self._sma(data.closes, 20)[-1])
         if np.isnan(mean) or close >= mean:
             return None
 

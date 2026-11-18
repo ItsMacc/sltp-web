@@ -113,12 +113,12 @@ class GlobalTrendAllocation(Strategy):
         # scheduled rebalance.
         if ticker not in self.tickers:
             return True
-        if history is None or len(history.close_price) == 0:
+        if history is None or len(history.closes) == 0:
             return False
 
         self._update_rolling_sma(ticker, history)
         sma = self._rolling_sma(ticker)
-        if sma is None or float(history.close_price[-1]) > sma:
+        if sma is None or float(history.closes[-1]) > sma:
             return False
 
         # Remove it now as well as queueing the exit.
@@ -128,7 +128,7 @@ class GlobalTrendAllocation(Strategy):
 
     # -------- Helper Methods --------
     def _update_rolling_sma(self, ticker: str, history: StockData) -> None:
-        closes = history.close_price
+        closes = history.closes
         codes = history.date_codes
         if len(closes) == 0:
             return
@@ -173,14 +173,14 @@ class GlobalTrendAllocation(Strategy):
             if lo == 0:
                 window[symbol] = history
             else:
-                window[symbol] = StockData.view(
-                    symbol,
-                    codes[lo:],
-                    history.open_price[lo:],
-                    history.high[lo:],
-                    history.low[lo:],
-                    history.close_price[lo:],
-                    history.volume[lo:],
+                window[symbol] = StockData(
+                    ticker=symbol,
+                    date_codes=codes[lo:],
+                    opens=history.opens[lo:],
+                    highs=history.highs[lo:],
+                    lows=history.lows[lo:],
+                    closes=history.closes[lo:],
+                    volumes=history.volumes[lo:],
                 )
         return window
 
@@ -207,7 +207,7 @@ class GlobalTrendAllocation(Strategy):
 
         # PICK 1: High Liquidity Trend Anchor
         for etf in sorted_etfs:
-            closes = histories[etf].close_price
+            closes = histories[etf].closes
             if len(closes) < self.TEN_MONTHS:
                 continue
             if closes[-1] > self._sma(closes, self.TEN_MONTHS)[-1]:
@@ -216,7 +216,7 @@ class GlobalTrendAllocation(Strategy):
 
         # PICK 2: Non-Correlated Asset Cluster
         if self.FIRST_PICK:
-            p1_closes = np.array(histories[self.FIRST_PICK].close_price)
+            p1_closes = np.array(histories[self.FIRST_PICK].closes)
             if len(p1_closes) >= self.TEN_MONTHS:
                 corr_lookback = min(self.ONE_YEAR, len(p1_closes))
                 # Percentage daily returns
@@ -226,7 +226,7 @@ class GlobalTrendAllocation(Strategy):
                     if etf == self.FIRST_PICK:
                         continue
 
-                    closes = np.array(histories[etf].close_price)
+                    closes = np.array(histories[etf].closes)
                     if len(closes) < max(self.TEN_MONTHS, corr_lookback):
                         continue
 
@@ -248,7 +248,7 @@ class GlobalTrendAllocation(Strategy):
             if etf in [self.FIRST_PICK, self.SECOND_PICK]:
                 continue
 
-            closes = np.array(histories[etf].close_price)
+            closes = np.array(histories[etf].closes)
             if len(closes) < max(self.ONE_YEAR, self.TEN_MONTHS):
                 continue
             if closes[-1] <= self._sma(closes, self.TEN_MONTHS)[-1]:
@@ -268,7 +268,7 @@ class GlobalTrendAllocation(Strategy):
             if etf in [self.FIRST_PICK, self.SECOND_PICK, self.THIRD_PICK]:
                 continue
 
-            closes = np.array(histories[etf].close_price)
+            closes = np.array(histories[etf].closes)
             if len(closes) < max(self.ONE_YEAR, self.TEN_MONTHS):
                 continue
             if closes[-1] <= self._sma(closes, self.TEN_MONTHS)[-1]:
@@ -290,7 +290,7 @@ class GlobalTrendAllocation(Strategy):
             if etf in [self.FIRST_PICK, self.SECOND_PICK, self.THIRD_PICK, self.FOURTH_PICK]:
                 continue
 
-            closes = np.array(histories[etf].close_price)
+            closes = np.array(histories[etf].closes)
             if len(closes) < max(63, self.TEN_MONTHS):  # 63 bars = ~3 months
                 continue
             if closes[-1] <= self._sma(closes, self.TEN_MONTHS)[-1]:
@@ -316,8 +316,8 @@ class GlobalTrendAllocation(Strategy):
         # Sorts all active available assets inside historical memory by median dollar volume
         volume_map = {}
         for ticker, data in histories.items():
-            closes = data.close_price
-            volumes = data.volume
+            closes = data.closes
+            volumes = data.volumes
             if len(closes) < 30 or len(volumes) < 30:
                 continue
 

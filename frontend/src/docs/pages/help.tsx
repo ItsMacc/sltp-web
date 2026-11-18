@@ -183,6 +183,39 @@ export const HELP: DocGroup = {
       title: 'Changelog',
       lead: 'What changed in the documentation and in the engine surface it describes.',
       blocks: [
+        { kind: 'h2', id: 'release-0-1-42', text: 'Release 0.1.42 — November 2026' },
+        {
+          kind: 'p',
+          text: <>One history per ticker for the whole run instead of one per ticker per session. The fields that hold the bars are now plural, and two of them are gone.</>,
+        },
+        {
+          kind: 'ul',
+          items: [
+            <><strong>The bar arrays are plural.</strong> <C>closes</C>, <C>opens</C>, <C>highs</C>, <C>lows</C> and <C>volumes</C>. <C>close_price</C>, <C>open_price</C>, <C>high</C>, <C>low</C> and <C>volume</C> raise <C>AttributeError</C>. Rename the reads and nothing else changes.</>,
+            <><strong>The <C>dates</C> keyword and <C>labels</C> are gone.</strong> Build with <C>date_codes</C>. Labels come from <C>data.dates</C>, which still indexes and slices like a string array.</>,
+            <><strong>A history is a window, not a copy.</strong> The engine keeps one object per ticker and moves its window to the current session before each callback, so <C>len(data)</C> is the bars visible and <C>data.window</C> is the <C>(start, end)</C> pair. A ten-year run used to build about 294,000 of these objects and 1.7M array headers; it now builds one per ticker.</>,
+            <><strong>A kept reference follows the window.</strong> The object handed to you today is yesterday&apos;s, widened. Store the values you need, not the object.</>,
+            <><strong>Equality is identity.</strong> <C>a == b</C> compared bars cell by cell and raised <C>ValueError</C> whenever a run compared two histories; the generated hash raised on the arrays. Both are identity now.</>,
+            <><strong>Results did not move.</strong> The adaptive strategy over 2022&ndash;2026 still ends at <C>172.6053</C> with 270 trades, and the 2020 buy-and-hold baseline still reads <C>118.0106477949049</C>. On that adaptive run, peak memory fell from about 660 MB to about 470 MB.</>,
+          ],
+        },
+        {
+          kind: 'code',
+          file: 'stockdata_fields.py',
+          code: `# 0.1.41 and earlier
+close = float(data.close_price[-1])
+volume = data.volume[-20:]
+
+# 0.1.42
+close = float(data.closes[-1])
+volume = data.volumes[-20:]`,
+        },
+        {
+          kind: 'callout',
+          tone: 'warning',
+          title: '_atr_stop is broken in 0.1.42',
+          text: <>The shipped helper reads <C>data.highss</C> and <C>data.lowss</C>, so <C>self._atr_stop(trade, 2.0)</C> raises <C>AttributeError</C>. Until 0.1.43, compute the ATR from <C>data.highs</C>, <C>data.lows</C> and <C>data.closes</C> yourself, or use <C>_trailing_stop</C>.</>,
+        },
         { kind: 'h2', id: 'release-0-1-41', text: 'Release 0.1.41 — November 2026' },
         {
           kind: 'p',
@@ -327,7 +360,7 @@ Order(ticker, position_type, allocation, stop_loss, take_profit, meta_data, sizi
           kind: 'ul',
           items: [
             'Dates are stored as int32 day numbers in a shared calendar, so a bar costs four bytes instead of forty.',
-            'Every callback receives an immutable, as-of-date slice. There is no path to a future bar.',
+            'Every callback sees read-only arrays ending on its own session. There is no path to a future bar.',
             'One entry is one lot. Scale-ins never average an entry price.',
             'Exit checks are pessimistic: the stop is tested first, and gaps fill at the open.',
             'Order refusals are counted by reason and returned with the result.',
@@ -339,16 +372,16 @@ Order(ticker, position_type, allocation, stop_loss, take_profit, meta_data, sizi
           kind: 'table',
           head: ['Runtime', 'Pinned sltp version'],
           rows: [
-            ['Browser engine (Pyodide)', '0.1.41'],
-            ['Lab (Pyodide)', '0.1.41'],
-            ['Backend', '>=0.1.41'],
+            ['Browser engine (Pyodide)', '0.1.42'],
+            ['Lab (Pyodide)', '0.1.42'],
+            ['Backend', '>=0.1.42'],
           ],
         },
         {
           kind: 'callout',
           tone: 'note',
           title: 'Versioning',
-          text: <>These docs track the <C>sltp</C> package on PyPI. The browser engine is pinned to <C>sltp 0.1.41</C>; the backend requires <C>sltp&gt;=0.1.41</C>. The backend and the site release separately; the headings below name behaviour, not a tagged build.</>,
+          text: <>These docs track the <C>sltp</C> package on PyPI. The browser engine is pinned to <C>sltp 0.1.42</C>; the backend requires <C>sltp&gt;=0.1.42</C>. The backend and the site release separately; the headings below name behaviour, not a tagged build.</>,
         },
       ],
     },

@@ -86,7 +86,7 @@ class MinimumVolatility(Strategy):
         if len(self.open_tickers) >= self.MAX_POSITIONS:
             return None
 
-        close: float = float(data.close_price[-1])
+        close: float = float(data.closes[-1])
         if close <= 0:
             return None
 
@@ -114,7 +114,7 @@ class MinimumVolatility(Strategy):
             if not self._is_liquid(history):
                 continue
 
-            closes = history.close_price[-self.VOLATILITY_BARS:]
+            closes = history.closes[-self.VOLATILITY_BARS:]
             returns = np.diff(np.log(closes))
             volatility: float = float(np.std(returns, ddof=1) * np.sqrt(252.0))
             if volatility <= 0.0 or not np.isfinite(volatility):
@@ -131,16 +131,16 @@ class MinimumVolatility(Strategy):
 
     # A stock needs price, volume and enough history for the volatility window.
     def _is_liquid(self, history: StockData) -> bool:
-        if len(history.close_price) < max(self.MIN_BARS_REQUIRED, self.VOLATILITY_BARS + 1):
+        if len(history.closes) < max(self.MIN_BARS_REQUIRED, self.VOLATILITY_BARS + 1):
             return False
-        if len(history.volume) < self.LIQUIDITY_BARS:
+        if len(history.volumes) < self.LIQUIDITY_BARS:
             return False
 
-        close: float = float(history.close_price[-1])
+        close: float = float(history.closes[-1])
         if close < self.MIN_PRICE or close <= 0:
             return False
 
-        closes = history.close_price[-self.LIQUIDITY_BARS:]
-        volumes = history.volume[-self.LIQUIDITY_BARS:]
+        closes = history.closes[-self.LIQUIDITY_BARS:]
+        volumes = history.volumes[-self.LIQUIDITY_BARS:]
         dollar_volume: float = float(np.mean(closes * volumes))
         return dollar_volume >= self.MIN_DOLLAR_VOLUME

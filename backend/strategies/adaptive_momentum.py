@@ -107,7 +107,7 @@ class AdaptiveMomentum(Strategy):
         if ticker in self._ordered or len(self._ordered) >= slots:
             return None
 
-        close: float = float(data.close_price[-1])
+        close: float = float(data.closes[-1])
         if close <= 0:
             return None
 
@@ -143,8 +143,8 @@ class AdaptiveMomentum(Strategy):
         for ticker, history in histories.items():
             if ticker not in self._stocks:
                 continue
-            closes = history.close_price
-            volumes = history.volume
+            closes = history.closes
+            volumes = history.volumes
             if len(closes) < self.LOOKBACK_BARS or len(volumes) < self.LIQUIDITY_BARS:
                 continue
             if closes[-1] < self.MIN_PRICE or closes[-1] <= 0:
@@ -192,8 +192,8 @@ class AdaptiveMomentum(Strategy):
     # The market filter: SPY above its long moving average.
     def _market_is_on(self, histories: dict[str, StockData]) -> bool:
         spy = histories.get(self.MARKET_TICKER)
-        if spy is None or len(spy.close_price) < self.MARKET_SMA_BARS:
+        if spy is None or len(spy.closes) < self.MARKET_SMA_BARS:
             return False
-        close: float = float(spy.close_price[-1])
-        sma: float = float(np.mean(spy.close_price[-self.MARKET_SMA_BARS:]))
+        close: float = float(spy.closes[-1])
+        sma: float = float(np.mean(spy.closes[-self.MARKET_SMA_BARS:]))
         return close > sma

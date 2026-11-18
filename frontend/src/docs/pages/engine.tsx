@@ -147,7 +147,7 @@ result = backtester.run()`,
           code: `def initialize_universe(self, current_date, histories):
     leaders = [
         ticker for ticker, history in histories.items()
-        if len(history.close_price) >= self.LIQUIDITY_BARS
+        if len(history.closes) >= self.LIQUIDITY_BARS
     ]
     if not leaders:
         return False
@@ -242,7 +242,7 @@ equity = 100.00 + realized_pnl + dividend_income - total_cost + unrealized_pnl`,
 
     ranked = sorted(
         histories.items(),
-        key=lambda pair: float(np.sum(pair[1].close_price[-252:])),
+        key=lambda pair: float(np.sum(pair[1].closes[-252:])),
         reverse=True,
     )
     fresh = [ticker for ticker, _ in ranked if ticker not in self.tickers]

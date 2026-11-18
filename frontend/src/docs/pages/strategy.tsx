@@ -158,10 +158,10 @@ class MyStrategy(Strategy):
     for ticker, history in histories.items():
         if ticker in self.available_etfs:
             continue
-        if len(history.close_price) < self.LIQUIDITY_BARS:
+        if len(history.closes) < self.LIQUIDITY_BARS:
             continue
         dollar_volume = float(
-            np.sum(history.close_price[-252:] * history.volume[-252:])
+            np.sum(history.closes[-252:] * history.volumes[-252:])
         )
         ranked.append((ticker, dollar_volume))
 
@@ -281,10 +281,10 @@ class MyStrategy(Strategy):
         {
           kind: 'code',
           file: 'reading the last value',
-          code: `rsi = float(self._rsi(data.close_price, 14)[-1])
-upper, middle, lower = self._bollinger_bands(data.close_price, 20, 2)
+          code: `rsi = float(self._rsi(data.closes, 14)[-1])
+upper, middle, lower = self._bollinger_bands(data.closes, 20, 2)
 
-if rsi < 30 and float(data.close_price[-1]) < float(lower[-1]):
+if rsi < 30 and float(data.closes[-1]) < float(lower[-1]):
     ...`,
         },
         {
