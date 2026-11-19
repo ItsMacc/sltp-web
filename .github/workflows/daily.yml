@@ -5,9 +5,12 @@
 # already have the repo, the lockstep, and a log per night. Cloudflare's free
 # cron gives 10ms of CPU per invocation, which will not run this.
 #
-# Timing: 21:30 UTC is 17:30 US Eastern in daylight saving and 16:30 in winter.
-# GitHub cron has no timezone field, and this pair lands after the 16:00 close
-# either way, so the update never reads a half-finished session.
+# Timing: both crons below are 17:30 in New York, which is after the 16:00 close
+# either way, so the update never reads a half-finished session. GitHub cron is
+# UTC and has no timezone field, so one entry cannot hold a local time across
+# the daylight-saving switch: 21:30 UTC is 17:30 EDT but 16:30 EST, and 22:30
+# UTC is 17:30 EST but 18:30 EDT. Both are scheduled and the off-season one is
+# a duplicate — the gate in market-data stops it before it downloads anything.
 #
 # Secrets live in Settings -> Secrets and variables -> Actions. None of them
 # belong in this file.
@@ -16,7 +19,10 @@ name: Daily data and operator brief
 
 on:
   schedule:
+    # 17:30 New York: 21:30 UTC while the US is on daylight time (Mar -> Nov)...
     - cron: '30 21 * * *'
+    # ...and 22:30 UTC once it is back on standard time (Nov -> Mar).
+    - cron: '30 22 * * *'
   # Lets you fire it by hand from the Actions tab (and from a phone).
   workflow_dispatch:
 
@@ -77,7 +83,26 @@ jobs:
           done
           exit $missing
 
+      # Whichever cron belongs to the other half of the year arrives to find the
+      # night already done. Ask the same calendar question the last step asks,
+      # and stop here rather than downloading four days of bars for eleven
+      # thousand symbols to discover the tail already carries them. A failing
+      # check (no credentials, a stale bucket) reads as "not fresh" and falls
+      # through to the update, which is where a real problem should surface.
+      - name: Skip a duplicate cron when R2 is already current
+        id: gate
+        working-directory: backend
+        shell: bash
+        run: |
+          if python scripts/daily_r2_update.py --check-fresh; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "R2 already carries the session the calendar expects; nothing to do."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Update market data
+        if: steps.gate.outputs.skip != 'true'
         working-directory: backend
         run: python scripts/daily_r2_update.py
 
