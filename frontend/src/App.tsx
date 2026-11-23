@@ -65,8 +65,10 @@ const SESSION_WAIT_MS = 2500;
 // Pages whose first paint is worth the 66 MB background sync. The Lab belongs
 // here: its Python runs read the same OPFS bars, and the engine never fetches
 // them itself, so a Lab-only visit on a cold browser had nothing to read and
-// failed with sltp's "no bars cached" error.
-const MARKET_DATA_TABS = new Set<string>(['research', 'strategies', 'watchlist', 'lab']);
+// failed with sltp's "no bars cached" error. Settings belongs here too: it is
+// the page that reports what this browser holds, so opening it should start the
+// download it is describing rather than show "nothing yet" forever.
+const MARKET_DATA_TABS = new Set<string>(['research', 'strategies', 'watchlist', 'lab', 'settings']);
 
 const LEGAL_TITLES: Record<LegalPageKind, string> = {
   privacy: 'Privacy Policy — SLTP',

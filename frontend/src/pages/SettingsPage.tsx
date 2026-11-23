@@ -785,6 +785,11 @@ export default function SettingsPage({ userId, userEmail, initialName, onProfile
                       ? 'Nothing has been downloaded yet. The first visit fills this in the background.'
                       : `${marketSync.loadedFiles.length} of ${marketSync.totalFiles} history files are stored here (${marketSync.plan === 'full' ? 'full history' : 'recent years only'}), about ${Math.round(marketSync.bytesLoaded / 1_000_000)} MB. Dataset date: ${marketSync.datasetDate ?? marketSync.version ?? 'unknown'}.`}
                   </span>
+                  {marketSync.error && (
+                    <span className="st-settings-hint is-caution" role="status">
+                      The last download stopped: {marketSync.error}
+                    </span>
+                  )}
                   {storageReport?.quotaBytes != null && (
                     <span className="st-settings-hint">
                       The browser allows this site up to {formatBytes(storageReport.quotaBytes)} more data.

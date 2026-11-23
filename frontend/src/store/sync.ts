@@ -23,7 +23,7 @@
 //   MARKET_DATA/symbol_catalog.parquet      every market, one table
 //   MARKET_DATA/fx.parquet                  daily FX to USD, one column per currency
 //   MARKET_DATA/DAILY/US/1998-2002.bin      one bundle per five-year block
-//   MARKET_DATA/DAILY/INTERNATIONAL/…​.bin  all international markets, one bundle per block
+//   MARKET_DATA/DAILY/INTERNATIONAL/….bin   all international markets, one bundle per block
 //   MARKET_DATA/DAILY/<market>/actions.parquet
 //
 // A bundle carries its own header, so the file name is only a label: the
