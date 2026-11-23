@@ -9,7 +9,9 @@ This module turns that silence into a decision, and the decision into a clean
 archive:
 
   1. NOTICE   every catalog symbol that produced no bars in the window the
-              nightly job just downloaded is a suspect.
+              nightly job just downloaded is a suspect — unless its last known
+              bar is only a few days old, which is a holiday or a halt, not a
+              delisting.
   2. VERIFY   a suspect is asked about twice: once directly (one month of
               Yahoo history, then the quote info) and once against
               FinanceDatabase, the same source the catalog is built from. That
@@ -87,6 +89,11 @@ MAX_PROBES = 40
 
 # Verdicts that are allowed to remove history, and the ones that only speak.
 STRIPPABLE = ("delisted", "renamed")
+# A symbol missing from one short window is usually a holiday, a suspension or
+# a halt, not a delisting. Only a name whose last known bar is already this old
+# is worth asking Yahoo about, so a long weekend cannot start a clock that ends
+# in deleted history ten nights later.
+SUSPECT_MIN_STALE_DAYS = 10
 
 
 # -------- Ledger (META/delisted.json) --------
@@ -330,6 +337,52 @@ def classify(row: pd.Series) -> dict:
 
 
 # -------- Notice: one night's suspects --------
+def last_bar_of(row: pd.Series | None) -> str | None:
+    """The catalog's newest session for a symbol, or None when it cannot say.
+
+    `LastBar` is written when the catalog is built, so it is a lower bound on
+    the true last session: a stale catalog can make a name look older than it
+    is, which only means it gets asked about — never that it is stripped.
+    """
+    if row is None:
+        return None
+    stamp = _cell(row, "LastBar")
+    return stamp[:10] if len(stamp) >= 10 and stamp[:4].isdigit() else None
+
+
+def holds_recent_bar(row: pd.Series | None, today: date | None = None,
+                     min_days: int = SUSPECT_MIN_STALE_DAYS) -> bool:
+    """True when the symbol traded too recently to be a delisting suspect."""
+    last = last_bar_of(row)
+    if last is None:
+        return False
+    try:
+        then = date.fromisoformat(last)
+    except ValueError:
+        return False
+    return (today or date.today()) - then < timedelta(days=min_days)
+
+
+def split_suspects(catalog: pd.DataFrame, market: str, missing: list[str],
+                   today: date | None = None) -> tuple[list[str], list[str]]:
+    """Splits a market's unanswered symbols into suspects and names to ignore.
+
+    The ignored list is the point: a holiday, a one-day halt or a suspended
+    line leaves a symbol out of a four-day window without anything being wrong
+    with the listing. Those names keep their bars and drop out of the notice
+    entirely, instead of accumulating nights toward a strip.
+    """
+    rows = {str(row["Symbol"]): row for _, row in catalog[catalog["Universe"] == market].iterrows()}
+    suspects: list[str] = []
+    recent: list[str] = []
+    for symbol in missing:
+        if holds_recent_bar(rows.get(symbol), today):
+            recent.append(symbol)
+        else:
+            suspects.append(symbol)
+    return sorted(suspects), sorted(recent)
+
+
 def _due(entry: dict) -> bool:
     """True when a verdict has waited long enough for its history to go.
 

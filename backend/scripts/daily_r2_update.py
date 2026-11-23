@@ -62,7 +62,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))  # sibling r2.py / flat
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # app.notify
 
 from app.notify.mailer import admin_recipient, ops_failure_email
-from delist import review_and_strip
+from delist import SUSPECT_MIN_STALE_DAYS, review_and_strip, split_suspects
 from flat_bundle import COLUMNS, build_flat_bundle, read_flat_bytes
 from r2 import s3 as _s3
 
@@ -449,8 +449,15 @@ def update_market(manifest: dict, catalog: pd.DataFrame, market: str,
     if unanswered_out is not None:
         # A halted name also misses a short window, so this is a list of
         # suspects, not verdicts: delist.review asks about each one and only a
-        # confirmed answer, after a grace period, removes anything.
-        unanswered_out[market] = sorted(set(symbols) - seen)
+        # confirmed answer, after a grace period, removes anything. A name that
+        # traded within the staleness window is not even a suspect — that is
+        # how a long weekend or a two-day halt stays out of the ledger.
+        suspects, recent = split_suspects(catalog, market, sorted(set(symbols) - seen))
+        unanswered_out[market] = suspects
+        if recent:
+            shown = ", ".join(recent[:8]) + ("…" if len(recent) > 8 else "")
+            print(f"{market}: {len(recent)} symbol(s) with no bars but a bar within "
+                  f"{SUSPECT_MIN_STALE_DAYS} days — not suspects: {shown}", flush=True)
     if not frames:
         print(f"{market}: no new bars — R2 already current.", flush=True)
         return False

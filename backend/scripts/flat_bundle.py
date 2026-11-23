@@ -109,6 +109,10 @@ def read_flat_bytes(blob: bytes) -> tuple[pd.DataFrame, dict]:
     if fmt != FORMAT:
         raise ValueError(f"unsupported flat bundle format {fmt}")
     header = json.loads(blob[PREAMBLE:PREAMBLE + header_len])
+    # The row count lives in the preamble, not in the JSON, and every caller
+    # that stamps a manifest entry reads it from here. Exposing it keeps
+    # `entry["rows"]` correct after a rewrite instead of raising KeyError.
+    header["rows"] = int(rows)
     payload = PREAMBLE + header_len
     offsets = header["offsets"]
     columns = {
