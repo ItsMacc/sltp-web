@@ -452,7 +452,10 @@ def update_market(manifest: dict, catalog: pd.DataFrame, market: str,
         # confirmed answer, after a grace period, removes anything. A name that
         # traded within the staleness window is not even a suspect — that is
         # how a long weekend or a two-day halt stays out of the ledger.
-        suspects, recent = split_suspects(catalog, market, sorted(set(symbols) - seen))
+        # The evidence is the bundle headers, not the catalog: a catalog built
+        # weeks ago cannot say whether a line traded this week.
+        suspects, recent = split_suspects(catalog, market, sorted(set(symbols) - seen),
+                                          manifest=manifest)
         unanswered_out[market] = suspects
         if recent:
             shown = ", ".join(recent[:8]) + ("…" if len(recent) > 8 else "")

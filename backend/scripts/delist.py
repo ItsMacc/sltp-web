@@ -9,9 +9,9 @@ This module turns that silence into a decision, and the decision into a clean
 archive:
 
   1. NOTICE   every catalog symbol that produced no bars in the window the
-              nightly job just downloaded is a suspect — unless its last known
-              bar is only a few days old, which is a holiday or a halt, not a
-              delisting.
+              nightly job just downloaded is a suspect — unless its own last
+              session in the newest bundles is only a few days behind the
+              market, which is a holiday or a halt, not a delisting.
   2. VERIFY   a suspect is asked about twice: once directly (one month of
               Yahoo history, then the quote info) and once against
               FinanceDatabase, the same source the catalog is built from. That
@@ -63,7 +63,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))  # sibling r2.py / flat
 
 from flat_bundle import COLUMNS, build_flat_bundle, read_flat_bytes
 from r2 import s3
-from sltp.utils.Dates import register
+from sltp.utils.Dates import EPOCH_ORDINAL, register
 
 # -------- Layout --------
 ROOT = "MARKET_DATA/DAILY"
@@ -350,20 +350,27 @@ def last_bar_of(row: pd.Series | None) -> str | None:
     return stamp[:10] if len(stamp) >= 10 and stamp[:4].isdigit() else None
 
 
-def holds_recent_bar(row: pd.Series | None, today: date | None = None,
-                     min_days: int = SUSPECT_MIN_STALE_DAYS) -> bool:
-    """True when the symbol traded too recently to be a delisting suspect."""
-    last = last_bar_of(row)
+def holds_recent_session(last: str | None, newest: str | None,
+                         today: date | None = None,
+                         min_days: int = SUSPECT_MIN_STALE_DAYS) -> bool:
+    """True when a last session is too close to the market's newest to judge.
+
+    The reference is the archive's own newest session, not today's date: a
+    publisher that skipped a week should not make every line in the file look
+    stale. Only when the archive cannot say does the calendar stand in.
+    """
     if last is None:
         return False
     try:
-        then = date.fromisoformat(last)
+        then = date.fromisoformat(last[:10])
+        reference = date.fromisoformat(newest[:10]) if newest else (today or date.today())
     except ValueError:
         return False
-    return (today or date.today()) - then < timedelta(days=min_days)
+    return reference - then < timedelta(days=min_days)
 
 
 def split_suspects(catalog: pd.DataFrame, market: str, missing: list[str],
+                   manifest: dict | None = None,
                    today: date | None = None) -> tuple[list[str], list[str]]:
     """Splits a market's unanswered symbols into suspects and names to ignore.
 
@@ -371,12 +378,20 @@ def split_suspects(catalog: pd.DataFrame, market: str, missing: list[str],
     line leaves a symbol out of a four-day window without anything being wrong
     with the listing. Those names keep their bars and drop out of the notice
     entirely, instead of accumulating nights toward a strip.
+
+    The evidence is the symbol's own last session in the newest bundles, read
+    with ranged requests. The catalog's LastBar is only a fallback, because it
+    is stamped when the catalog is built: a catalog a month old would otherwise
+    make every line look stale and flag the first halt of the week on day one.
     """
     rows = {str(row["Symbol"]): row for _, row in catalog[catalog["Universe"] == market].iterrows()}
+    newest = market_newest_session(manifest, market) if manifest is not None else None
+    from_archive = symbol_last_sessions(manifest, market, missing) if manifest is not None else {}
     suspects: list[str] = []
     recent: list[str] = []
     for symbol in missing:
-        if holds_recent_bar(rows.get(symbol), today):
+        last = from_archive.get(symbol) or last_bar_of(rows.get(symbol))
+        if holds_recent_session(last, newest, today):
             recent.append(symbol)
         else:
             suspects.append(symbol)
@@ -496,8 +511,8 @@ def _stamp(entry: dict, blob: bytes, header: dict) -> None:
     entry["row_groups"] = 0
 
 
-def _bundle_header(key: str) -> dict | None:
-    """One bundle's header, from a range read — never the whole file."""
+def _bundle_head(key: str) -> tuple[dict, int] | None:
+    """One bundle's header and payload offset, from a range read."""
     try:
         blob = s3("GET", key, headers={"range": f"bytes=0-{HEADER_WINDOW - 1}"})
     except RuntimeError:
@@ -507,7 +522,68 @@ def _bundle_header(key: str) -> dict | None:
     _magic, _fmt, header_len, _rows = struct.unpack("<8sIIQ", blob[:24])
     if 24 + header_len > len(blob):
         raise RuntimeError(f"{key}: header is larger than the read window")
-    return json.loads(blob[24:24 + header_len])
+    return json.loads(blob[24:24 + header_len]), 24 + header_len
+
+
+def _bundle_header(key: str) -> dict | None:
+    """One bundle's header, from a range read — never the whole file."""
+    head = _bundle_head(key)
+    return head[0] if head is not None else None
+
+
+def _market_bundles(manifest: dict, market: str) -> list[dict]:
+    """One market's bundles, newest session first."""
+    entries = [entry for entry in manifest.get("files", [])
+               if entry["key"].startswith(f"{ROOT}/{market}/") and entry["key"].endswith(".bin")]
+    return sorted(entries, key=lambda entry: str(entry.get("last_session") or ""), reverse=True)
+
+
+def market_newest_session(manifest: dict, market: str) -> str | None:
+    """The newest session the archive holds for one market."""
+    newest = [str(entry.get("last_session") or "") for entry in _market_bundles(manifest, market)]
+    return max(newest) if newest and max(newest) else None
+
+
+def symbol_last_sessions(manifest: dict, market: str, symbols: list[str]) -> dict[str, str]:
+    """Each symbol's newest session in the archive, read from the files.
+
+    The catalog's LastBar is written when the catalog is built, which can be
+    weeks before tonight, so it cannot answer "did this name trade this week".
+    The bundles can: their headers say where a symbol's run sits, and two bytes
+    of its last date cost one tiny ranged read. Newest bundle first, and the
+    walk stops as soon as every wanted name has been found.
+    """
+    found: dict[str, str] = {}
+    remaining = {symbol for symbol in symbols if symbol}
+    if not remaining:
+        return found
+    for entry in _market_bundles(manifest, market):
+        if not remaining:
+            break
+        head = _bundle_head(entry["key"])
+        if head is None:
+            continue
+        header, payload = head
+        positions = {str(symbol): index for index, symbol in enumerate(header.get("symbols", []))}
+        offsets = header.get("offsets") or {}
+        if "date" not in offsets:
+            continue
+        for symbol in [name for name in remaining if name in positions]:
+            position = positions[symbol]
+            count = int(header["counts"][position])
+            if count <= 0:
+                continue
+            at = payload + int(offsets["date"]) + (int(header["starts"][position]) + count - 1) * 2
+            try:
+                raw = s3("GET", entry["key"], headers={"range": f"bytes={at}-{at + 1}"})
+            except RuntimeError:
+                continue
+            if len(raw) < 2:
+                continue
+            day = int(struct.unpack("<H", raw)[0])
+            found[symbol] = date.fromordinal(day + EPOCH_ORDINAL).isoformat()
+            remaining.discard(symbol)
+    return found
 
 
 def strip(markets: dict[str, list[str]], entries: list[dict],

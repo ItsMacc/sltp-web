@@ -1,9 +1,14 @@
-"""test_delist_scratch.py — the strip path, end to end, on a scratch bucket slice.
+"""test_delist_scratch.py — the strip path and the holiday guard, on a scratch slice.
 
 The nightly job can delete years of bars, so the one thing worth proving before
 it runs for real is that deletion is correct: the right rows go, the survivors
 do not, every manifest entry matches the bytes actually written, the catalog
 and the archive agree, and a renamed ticker's replacement is backfilled.
+
+The suspect rule is checked here too, in both directions: a line whose own last
+bar is in the newest bundles is ignored even when the catalog is a month stale,
+and a line that really stopped stays a suspect even when the catalog claims it
+traded today.
 
 Nothing here can touch the live archive. Every key the test writes goes under
 SCRATCH_TEST_DELIST/, the objects are built from scratch inside the test, and
@@ -155,7 +160,10 @@ def catalog_frame() -> pd.DataFrame:
         # symbol, name, universe, exchange, isin, bars, first, last
         ("DOOM", "Doomed Holdings", "US", "NYSE", "US0000000001", 27, "1999-01-04", TAIL_DAYS[-1]),
         ("KEEP", "Kept Industries", "US", "NASDAQ", "US0000000002", 22, WEEK[0], TAIL_DAYS[-1]),
-        ("HALTED", "Halted Once", "US", "NYSE", "US0000000003", 20, WEEK[0], WEEK[-1]),
+        ("SURVIVOR", "Old But Listed", "US", "NYSE", "US0000000003", 10, WEEK[0], WEEK[9]),
+        ("HALTED", "Halted This Week", "US", "NYSE", "US0000000004", 1, TAIL_DAYS[0], TAIL_DAYS[0]),
+        ("STALEOLD", "Stopped Long Ago", "US", "NYSE", "US0000000005", 1, "2026-10-01", "2026-10-01"),
+        ("NOTINARCHIVE", "Never Had Bars", "US", "NYSE", "US0000000006", 0, "", "2026-10-01"),
         ("GONE.NS", "Departed Ltd", "INTERNATIONAL", "NSE", "INE000A01001", 20, WEEK[0], WEEK[-1]),
         ("KEEP.NS", "Kept Overseas", "INTERNATIONAL", "NSE", "INE000A01002", 20, WEEK[0], WEEK[-1]),
     ]
@@ -183,6 +191,13 @@ def catalog_frame() -> pd.DataFrame:
     })
     frame["Bars"] = frame["Bars"].astype("int64")
     frame["Status"] = frame["Status"].astype("string")
+    # The staleness cases, in the two directions that matter:
+    #   HALTED     — the catalog is a month stale (says 2026-09-01) but the
+    #                archive has a bar two days old: must be ignored.
+    #   STALEOLD   — the catalog was rebuilt today and claims a bar today, but
+    #                the archive's newest row is 2026-10-01: must stay a suspect.
+    frame.loc[frame["Symbol"] == "HALTED", "LastBar"] = "2026-09-01"
+    frame.loc[frame["Symbol"] == "STALEOLD", "LastBar"] = date.today().isoformat()
     return frame
 
 
@@ -197,12 +212,16 @@ def write_scratch() -> dict:
     put_bundle(
         "US", "2018-2022.bin",
         pd.concat([bars("KEEP", WEEK, 20.0), bars("DOOM", WEEK, 30.0),
-                   bars("HALTED", WEEK[:10], 40.0)], ignore_index=True),
+                   bars("SURVIVOR", WEEK[:10], 40.0)], ignore_index=True),
         manifest_files,
     )
+    # The tail carries the staleness fixtures: one bar two days old (a halt),
+    # one bar seven weeks old (a real stop) — both missing from tonight's
+    # download window.
     put_bundle("US", "recent.bin",
-               pd.concat([bars("KEEP", TAIL_DAYS, 50.0), bars("DOOM", TAIL_DAYS, 60.0)],
-                         ignore_index=True),
+               pd.concat([bars("KEEP", TAIL_DAYS, 50.0), bars("DOOM", TAIL_DAYS, 60.0),
+                          bars("HALTED", [TAIL_DAYS[0]], 90.0),
+                          bars("STALEOLD", ["2026-10-01"], 95.0)], ignore_index=True),
                manifest_files)
     put_bundle(
         "INTERNATIONAL", "2018-2022.bin",
@@ -311,13 +330,16 @@ def verify(state: dict) -> None:
     symbols = set(header["symbols"])
     check("DOOM removed from US 2018-2022", "DOOM" not in symbols, str(sorted(symbols)))
     check("KEEP untouched in US 2018-2022", "KEEP" in symbols and len(frame[frame["Symbol"] == "KEEP"]) == len(WEEK))
-    check("HALTED untouched in US 2018-2022",
-          "HALTED" in symbols and len(frame[frame["Symbol"] == "HALTED"]) == 10)
+    check("SURVIVOR untouched in US 2018-2022",
+          "SURVIVOR" in symbols and len(frame[frame["Symbol"] == "SURVIVOR"]) == 10)
 
     tail_frame, tail_header = read_flat_bytes(s3("GET", key_for("US", "recent.bin")))
     check("DOOM removed from the tail", "DOOM" not in set(tail_header["symbols"]))
     check("tail still holds KEEP's two sessions",
           len(tail_frame[tail_frame["Symbol"] == "KEEP"]) == len(TAIL_DAYS))
+    check("the halted and stale fixtures kept their rows",
+          len(tail_frame[tail_frame["Symbol"] == "HALTED"]) == 1
+          and len(tail_frame[tail_frame["Symbol"] == "STALEOLD"]) == 1)
 
     print("\n-- empty bundle --")
     check("US 1998-2002 (only DOOM) deleted from the bucket",
@@ -427,6 +449,31 @@ def main() -> int:
 
     state = write_scratch()
     fake_yfinance()
+
+    # The holiday guard: the bundle headers are the evidence, so a catalog that
+    # has not been rebuilt cannot make a live line look dead — and a rebuilt
+    # catalog cannot hide a line that actually stopped.
+    print("\n-- suspect staleness (the bundles decide, not the catalog) --")
+    manifest = delist._manifest()
+    missing = ["HALTED", "STALEOLD", "NOTINARCHIVE"]
+    archive_last = delist.symbol_last_sessions(manifest, "US", missing)
+    check("last sessions read out of the bundles",
+          archive_last.get("HALTED") == TAIL_DAYS[0]
+          and archive_last.get("STALEOLD") == "2026-10-01"
+          and "NOTINARCHIVE" not in archive_last, str(archive_last))
+    check("market newest session comes from the manifest",
+          delist.market_newest_session(manifest, "US") == TAIL_DAYS[-1],
+          str(delist.market_newest_session(manifest, "US")))
+    suspects, recent = delist.split_suspects(state["catalog"], "US", missing,
+                                             manifest=manifest)
+    check("a halt is ignored even when the catalog LastBar is a month old",
+          "HALTED" in recent, f"recent={recent}")
+    check("a name with no bar for seven weeks stays a suspect",
+          "STALEOLD" in suspects, f"suspects={suspects}")
+    check("a name with no bars at all stays a suspect",
+          "NOTINARCHIVE" in suspects, f"suspects={suspects}")
+    check("the guard produced no false suspects",
+          suspects == ["NOTINARCHIVE", "STALEOLD"], str(suspects))
 
     due = [
         entry for entry in delist.read_ledger()["symbols"]
