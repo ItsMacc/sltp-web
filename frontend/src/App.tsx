@@ -114,6 +114,13 @@ export default function App() {
   // The hash listener is registered once, so it reads the signed-in user from a
   // ref rather than a stale closure.
   const userRef = useRef(user);
+
+  // Who the session check named, which is known before the account row is:
+  // undefined while it is still checking, null when signed out, an id when
+  // signed in. The Settings gate reads this rather than the profile, because
+  // the profile is a second read that lands after the loader lifts — gating on
+  // it told a signed-in visitor reloading #/settings to sign in.
+  const sessionUserIdRef = useRef<string | null | undefined>(undefined);
   // Where a legal page goes back to when its Back button is pressed.
   const legalReturnRef = useRef<string>(initialRoute.tab);
 
@@ -138,7 +145,13 @@ export default function App() {
     // Only Settings is behind the wall: it edits the account row itself. The
     // Lab, the course and Research all work signed out, keeping their work in
     // this browser until the visitor decides to sign in.
-    const gated = route.tab === 'settings' && !userRef.current?.id;
+    // A session that has not answered yet is not a signed-out visit: the gate
+    // stays open and the route is applied again once the answer lands.
+    const gated =
+      route.tab === 'settings' &&
+      sessionUserIdRef.current !== undefined &&
+      !sessionUserIdRef.current &&
+      !userRef.current?.id;
 
     setActiveTab(route.tab);
     if (gated) {
@@ -176,6 +189,14 @@ export default function App() {
   useEffect(() => {
     if (!loading) syncFromLocation();
   }, [loading, syncFromLocation]);
+
+  // The session read may have timed out (SESSION_WAIT_MS) before it answered,
+  // leaving a deep link to Settings decided without it. Applying the address
+  // again once the account lands puts Settings back on screen instead of the
+  // Home fallback or a sign-in card the visitor does not need.
+  useEffect(() => {
+    if (!loading && user?.id && activeTab === 'settings') syncFromLocation();
+  }, [loading, user?.id, activeTab, syncFromLocation]);
 
   /**
    * Loads the profile and writes the account row in Turso.
@@ -295,6 +316,7 @@ export default function App() {
       history.replaceState(null, '', hashForTab('home'));
       setActiveTab('home');
       setUser(null);
+      sessionUserIdRef.current = null;
       invalidatePortfolio();
       setAuthMode(null);
       setLegalPage(null);
@@ -374,10 +396,14 @@ export default function App() {
       // A visitor who did not ask to be remembered gets one day; the token is
       // still valid, so this is where that promise is kept.
       if (session?.user && sessionExpired()) {
+        sessionUserIdRef.current = null;
         await supabase.auth.signOut();
         release();
         return;
       }
+      // The gate can answer from the session alone, so record it before the
+      // profile read starts rather than after it.
+      sessionUserIdRef.current = session?.user?.id ?? null;
       // Paint first, fill the account in behind it. Waiting for the profile row
       // and the provision call put a Supabase read and a Render round trip in
       // front of every first frame, which is most of what "slow to load" meant.
@@ -386,10 +412,12 @@ export default function App() {
     }).catch(() => {
       // A refused session read is a signed-out visit, not a hung boot.
       window.clearTimeout(timer);
+      sessionUserIdRef.current = null;
       release();
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_, session) => {
+      sessionUserIdRef.current = session?.user?.id ?? null;
       if (session?.user) {
         // A different account must never inherit the cached portfolio.
         setUser((prev) => {
