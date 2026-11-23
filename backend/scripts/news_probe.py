@@ -6,7 +6,7 @@
 # pull_news() walks Alpaca's news pages from five days ago to now, at fifty
 # articles a page, and stops at CALL_CAP calls or when the feed runs dry. Every
 # article is expanded into its symbols; a line is emitted only for symbols that
-# exist in SYMBOL_DATA/symbol_catalog.parquet as active or lagging, and only
+# exist in MARKET_DATA/symbol_catalog.parquet as active or lagging, and only
 # when the article actually has content. Nothing is stored: the function returns
 # the lines and __main__ prints them.
 #
@@ -33,7 +33,7 @@ from r2 import s3  # noqa: E402 - loads the repo-root .env on import
 
 # -------- Constants --------
 URL = "https://data.alpaca.markets/v1beta1/news"
-CATALOG_KEY = "SYMBOL_DATA/symbol_catalog.parquet"
+CATALOG_KEY = "MARKET_DATA/symbol_catalog.parquet"
 PAGE = 50                  # Alpaca's hard maximum per call
 CALL_CAP = 190             # five days has never needed more
 DAYS = 5

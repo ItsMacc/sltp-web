@@ -10,7 +10,7 @@
 # UTC and has no timezone field, so one entry cannot hold a local time across
 # the daylight-saving switch: 21:30 UTC is 17:30 EDT but 16:30 EST, and 22:30
 # UTC is 17:30 EST but 18:30 EDT. Both are scheduled and the off-season one is
-# a duplicate — the gate in market-data stops it before it downloads anything.
+# a duplicate — the freshness check below stops it before it downloads anything.
 #
 # Secrets live in Settings -> Secrets and variables -> Actions. None of them
 # belong in this file.
@@ -45,7 +45,7 @@ jobs:
     # nothing, so every consumer of these has to read empty as unset. R2_BUCKET
     # is the one that bites: an empty bucket name signs a request to the wrong
     # path. r2.py now falls back with `or`, and the values with code defaults
-    # (GATEWAY_URL, SMTP_PORT, FROM_EMAIL) are simply not passed from here.
+    # (SMTP_PORT, FROM_EMAIL) are simply not passed from here.
     env:
       R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
       R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
@@ -130,8 +130,8 @@ jobs:
       # different credential from the S3 keys the upload uses.
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      # GATEWAY_URL is deliberately absent: app.config reads SLTP_GATEWAY_URL and
-      # has a working default, and an empty GATEWAY_URL would only shadow nothing.
+      # SLTP_DATA_URL is deliberately absent: app.config defaults it to the
+      # public bucket, and an empty value would only shadow that default.
       SMTP_HOST: ${{ secrets.SMTP_HOST }}
       SMTP_PORT: ${{ secrets.SMTP_PORT }}
       SMTP_USER: ${{ secrets.SMTP_USER }}

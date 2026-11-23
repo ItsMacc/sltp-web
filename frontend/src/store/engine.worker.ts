@@ -7,11 +7,10 @@
 //
 // Reads need no bridge: the worker mounts the same `sltp-market` directory
 // the sync downloads into at sltp's own cache path (`~/.sltp/cache`), and
-// the bucket layout the sync mirrors is almost the layout sltp expects:
-// bars and actions sit in MARKET_DAILY/ where sltp looks, and boot mirrors
-// the uppercase SYMBOL_DATA/ catalog to the lowercase symbol_data/ dir the
-// readers open. A run over a range the sync never fetched
-// still resolves — sltp's own fetch hook downloads the gap through the
+// the sync writes exactly the layout sltp reads — MARKET_DATA/symbol_catalog
+// .parquet, MARKET_DATA/fx.parquet, and one directory of .bin bundles per
+// market under MARKET_DATA/DAILY/. A run over a range the sync never fetched
+// still resolves: sltp's own fetch hook downloads the gap through the
 // browser stack (synchronous XHR, which is why this worker exists: the
 // main thread cannot do it), landing in the same mounted files.
 //
@@ -30,7 +29,7 @@ const PYODIDE_INDEX_URL = 'https://cdn.jsdelivr.net/pyodide/v314.0.7/full/';
     numpy, pyarrow and python-dateutil all ship in the Pyodide distribution
     and are loaded as binary packages, because a WASM runtime cannot use the
     CPython wheels on PyPI. */
-const SLTP_VERSION = '0.1.42';
+const SLTP_VERSION = '0.1.44';
 
 /** The slice of the Pyodide JS API this worker touches. */
 /** The Lab's analyser pins: the same wheels the Lab used to install itself. */
@@ -107,8 +106,16 @@ _STRATEGIES = {}
 # freshness. With auto-update on, sltp re-reads R2 metadata through a
 # synchronous XHR before every read, serialising the run behind the network
 # for nothing.
-from sltp.data import config as _config
+from sltp.market import config as _config
+from sltp.market import remote as _remote
 _config.set_auto_update(False)
+# Belt and braces. config.json is written to MEMFS, not to the mounted cache,
+# so anything that rewrites it later (a sltp reset typed into the Lab
+# terminal) would turn the version check back on. This flag settles it for the
+# lifetime of the interpreter: no version stamp and no manifest is read, no
+# matter what config.json says. An explicit data update still works, because
+# refresh_all reads the manifest directly.
+_remote._VERSION_CHECKED = True
 
 # Timings for one run: how much of it was reading bars, and how much was the
 # day loop itself. Printed in the UI, so a slow phone names its bottleneck
@@ -128,63 +135,27 @@ def register_strategy(key, classname, source):
     _STRATEGIES[key] = namespace[classname]
 
 
-def _install_shared_bulk_cache():
-    # Every large strategy ranks the same US universe. sltp keys its bulk
-    # cache by the exact ticker list, so Adaptive Momentum, Minimum
-    # Volatility and Mean Reversion each kept their own full decode. Two of
-    # those dictionaries are enough to push a phone WebView over its memory
-    # ceiling on the third run. Read one canonical universe and hand each
-    # strategy only the names it asked for; the cache stays warm across
-    # strategies and Pyodide only holds one copy of the bars.
-    from sltp.data import market_data_service as service
-
-    if getattr(service, "_sltp_shared_bulk", False):
-        return
-
-    original = service._bulk_histories
-
-    def shared_bulk(symbols, start, end):
-        if len(symbols) <= service.SYMBOL_CACHE_LIMIT:
-            return original(symbols, start, end)
-        try:
-            universe = service.get_all_tickers()
-            histories = original(universe, start, end)
-        except Exception as error:
-            # The canonical read is an optimisation. If the catalog is
-            # unavailable, let the engine take its normal path.
-            return original(symbols, start, end)
-        result = {symbol: histories[symbol] for symbol in symbols if symbol in histories}
-        return result
-
-    service._sltp_original_bulk_histories = original
-    service._bulk_histories = shared_bulk
-    service.BULK_CACHE_LIMIT = 1
-    service._sltp_shared_bulk = True
-
-
 def run_strategy(key, start, end):
-    from sltp.backtesting import Backtester
+    from sltp import Backtester
     from sltp.backtesting import backtester as _backtester
-    from sltp.data import market_data_service as _market
+    from sltp.market import market_data as _market
     from sltp.web import to_jsonable
 
-    _install_shared_bulk_cache()
-
-    # A new date window invalidates the old decoded bars. Release them before
-    # the new read instead of waiting for the cache limit to evict them after
-    # the new dictionary has already been allocated.
+    # A new date window invalidates every lookup the engine cached around the
+    # previous one: the registered calendar, the catalogue, the panel of
+    # memory-mapped bundles. Dropping them before the new read keeps one
+    # window's memory from stacking on the next, which is what kills a phone
+    # tab. The bars themselves are views, so nothing is decoded twice.
     global _LAST_RUN_WINDOW
     window = (start, end or None)
     if _LAST_RUN_WINDOW != window:
-        with _market._LOAD_LOCK:
-            _market._BULK_CACHE.clear()
-            _market.refresh_market_data_cache()
+        _market.refresh()
         _LAST_RUN_WINDOW = window
         import gc as _gc
         _gc.collect()
 
-    # Time the bar reads. The backtester imported _get_histories by name, so
-    # both module globals are patched; the timer is restored afterwards so a
+    # Time the bar reads. The backtester imported _histories by name, so both
+    # module globals are patched; the timer is restored afterwards so a
     # failed run cannot leave the engine instrumented.
     _IO_STATS["io_seconds"] = 0.0
     _IO_STATS["io_calls"] = 0
@@ -193,8 +164,8 @@ def run_strategy(key, start, end):
     _BRIDGE_STATS["seconds"] = 0.0
     _BRIDGE_STATS["bytes"] = 0
     _BRIDGE_STATS["files"] = 0
-    _original_backtester = _backtester._get_histories
-    _original_market = getattr(_market, "_get_histories", None)
+    _original_backtester = _backtester._histories
+    _original_market = _market._histories
 
     def _timed(fn):
         def wrapper(*args, **kwargs):
@@ -206,9 +177,8 @@ def run_strategy(key, start, end):
                 _IO_STATS["io_calls"] += 1
         return wrapper
 
-    _backtester._get_histories = _timed(_original_backtester)
-    if _original_market is not None:
-        _market._get_histories = _timed(_original_market)
+    _backtester._histories = _timed(_original_backtester)
+    _market._histories = _timed(_original_market)
 
     cls = _STRATEGIES[key]
     _started = time.perf_counter()
@@ -216,9 +186,8 @@ def run_strategy(key, start, end):
         result = Backtester(cls(), start, end or None).run()
     finally:
         _run_seconds = time.perf_counter() - _started
-        _backtester._get_histories = _original_backtester
-        if _original_market is not None:
-            _market._get_histories = _original_market
+        _backtester._histories = _original_backtester
+        _market._histories = _original_market
     # sltp's curve points carry portfolio_value; accept a bare value too so
     # a point never dies inside to_jsonable with a bare KeyError. Anything
     # else fails loud, naming the keys, the range and the engine version.
@@ -261,11 +230,11 @@ def run_strategy(key, start, end):
 LAB_HISTORIES = {}
 
 def load_all_market_data(start="2022-01-01", end=None, chunk_size=1000):
-    from sltp.data import market_data_service as service
-    universe = service.get_all_tickers()
-    # Use the undecorated reader so each 1,000-ticker batch is actually a
-    # separate batch instead of the shared-cache wrapper decoding the world.
-    reader = getattr(service, "_sltp_original_bulk_histories", service._bulk_histories)
+    from sltp.market import market_data as service
+    universe = service.universe()
+    # Batches, because a lab notebook that asks for everything should not
+    # build one 19,000-ticker dictionary before printing a single line.
+    reader = service._histories
     histories = {}
     started = time.perf_counter()
     for offset in range(0, len(universe), chunk_size):
@@ -301,25 +270,24 @@ def run_terminal(code):
 
 
 def prime_remote_cache():
-    # sltp reads bars from ~/.sltp/cache/MARKET_DAILY (the OPFS directory
-    # mounted there) and the catalog beside it in ~/.sltp/cache/symbol_data,
-    # while the bucket and the browser sync both write the uppercase
-    # SYMBOL_DATA/ name. Mirror the small metadata files onto the lowercase
-    # path the readers open. Bars need no move: a flat bundle is already
-    # a MARKET_DAILY/market_data_<year>.bin. Runs at every boot, so a
-    # half-written file heals itself on the next visit.
-    import shutil
+    # The page's sync writes the bucket tree into the OPFS directory mounted
+    # at ~/.sltp/cache, and that is already the layout sltp 0.1.44 reads:
+    #   MARKET_DATA/symbol_catalog.parquet
+    #   MARKET_DATA/fx.parquet
+    #   MARKET_DATA/DAILY/<market>/<anything>.bin
+    #   MARKET_DATA/DAILY/<market>/actions.parquet
+    # There is no mirror to build and no legacy directory to feed. This pass
+    # only drops a truncated file (a parquet without its magic, a bundle too
+    # small to hold a header) so the sync or sltp's own fetch writes it
+    # again, and fills the two small metadata tables when a first run beats
+    # the sync to them.
     from pathlib import Path
-    from sltp.data import remote as _remote
 
-    cache = Path(_remote.CACHE_ROOT)
-    market = cache / "MARKET_DAILY"
-    symbol_dir = cache / "symbol_data"
+    from sltp.market import layout, remote
 
-    # Self-heal: a parquet without its magic is a truncated download, and a
-    # bundle too small to hold a header is not a bundle. Drop both so the
-    # next sync (or sltp's own fetch) writes them again.
-    for cached in [*market.glob("*.parquet"), *symbol_dir.glob("*.parquet")]:
+    root = Path(remote.CACHE_ROOT) / "MARKET_DATA"
+
+    for cached in root.rglob("*.parquet"):
         try:
             with open(cached, "rb") as handle:
                 broken = handle.read(4) != b"PAR1"
@@ -327,38 +295,21 @@ def prime_remote_cache():
             broken = True
         if broken:
             cached.unlink(missing_ok=True)
-    for cached in market.glob("*.bin"):
-        try:
-            if cached.stat().st_size <= 24:
-                cached.unlink()
-        except OSError:
-            pass
+    for market in layout.market_dirs():
+        for cached in (root / "DAILY" / market).glob("*.bin"):
+            try:
+                if cached.stat().st_size <= 24:
+                    cached.unlink()
+            except OSError:
+                pass
 
-    # Metadata already on disk means no network: the main-thread sync owns
-    # freshness, and sltp's own fetch still fills a missing bundle on demand.
-    have_catalog = (cache / "SYMBOL_DATA" / "symbol_catalog.parquet").is_file() or (
-        symbol_dir / "symbol_catalog.parquet"
-    ).is_file()
-    if not (have_catalog and (market / "market_actions.parquet").is_file()):
-        _remote.sync_catalog()
-        _remote.sync_actions()
-
-    symbol_dir.mkdir(parents=True, exist_ok=True)
-
-    src = cache / "SYMBOL_DATA"
-    if src.is_dir():
-        try:
-            same = src.resolve() == symbol_dir.resolve()
-        except OSError:
-            same = False
-        if not same:
-            for child in src.iterdir():
-                if child.is_file():
-                    try:
-                        shutil.copy2(child, symbol_dir / child.name)
-                    except shutil.SameFileError:
-                        # Case-insensitive checkout: src and dest are one dir.
-                        pass
+    if not (root / "symbol_catalog.parquet").is_file():
+        remote.sync_catalog()
+    if not any(
+        (root / "DAILY" / market / "actions.parquet").is_file()
+        for market in ("US", "INTERNATIONAL")
+    ):
+        remote.sync_actions()
 `;
 
 /** Sync downloads through the browser's own network stack. open_url decodes
@@ -371,14 +322,14 @@ _BRIDGE_STATS = {"seconds": 0.0, "bytes": 0, "files": 0}
 
 
 def enable_browser_fetch():
-    from pyodide.http import open_url
-    from sltp.data.remote import set_fetch
+    from sltp.market.remote import set_fetch
 
-    # sltp ships the public r2.dev URL, which is closed now. Every remote read
-    # goes through the gate instead: the unversioned alias serves the small
-    # metadata files, and the cache mounted from OPFS serves the bars.
-    import sltp.data.remote as _remote
-    _remote.REMOTE_BASE_URL = "https://sltp-data.magicaltitan7.workers.dev/v/live"
+    # The wheel's own default already points at the bucket; pin it here too so
+    # a release cannot move the source underneath a sync. The cache mounted
+    # from OPFS serves the bars, so this path only runs for a gap the sync
+    # has not filled yet.
+    import sltp.market.remote as _remote
+    _remote.REMOTE_BASE_URL = "https://data.sltp-app.com"
 
     def _bridge(url, dest):
         from pathlib import Path
@@ -507,8 +458,8 @@ async function boot(strategies: StrategyInit[]): Promise<void> {
   step('engine');
   const enableFetch = instance.globals.get('enable_browser_fetch');
   enableFetch();
-  // Mirror the uppercase bucket layout to the lowercase paths sltp opens
-  // (SYMBOL_DATA/ -> symbol_data/), fetching anything still missing.
+  // Check the mounted archive for truncated files and fetch the two small
+  // metadata tables when a first run beats the page's sync to them.
   const prime = instance.globals.get('prime_remote_cache');
   await prime();
   step('data');
@@ -541,8 +492,11 @@ async function warmLab(): Promise<void> {
     instance.runPython(ANALYZER, { globals: namespace });
     labWarning = null;
   } catch (error) {
-    // The runner still works without jedi; the reason is kept for the status.
+    // The runner still works without jedi; the reason is kept for the status
+    // and printed, because a swallowed boot error leaves every later call with
+    // nothing but "name 'analyze' is not defined".
     labWarning = error instanceof Error ? error.message : String(error);
+    console.error('Lab analyser failed to start', error);
   }
   labReady = true;
 }

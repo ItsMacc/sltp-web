@@ -368,13 +368,6 @@ def _strategy_slug(name: str) -> str:
     return (slug or "strategy")[:48]
 
 
-def _template_code(template: str) -> str:
-    template = (template or "blank").strip().lower()
-    if template not in TEMPLATE_SEEDS:
-        template = "blank"
-    return TEMPLATE_SEEDS[template][0][1]
-
-
 def _unique_strategy_path(project_id: str, name: str) -> str:
     base = _strategy_slug(name)
     candidate = f"workspace/{base}.py"
@@ -532,7 +525,7 @@ def create_project(
     template: str,
     file_name: str | None = None,
     *,
-    code: str | None = None,
+    code: str,
     settings: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     owner = execute_one(
@@ -545,39 +538,30 @@ def create_project(
         raise LabError("Name the project.", 400)
     if len(name) > PROJECT_NAME_MAX:
         raise LabError(f"Project names must be {PROJECT_NAME_MAX} characters or fewer.", 400)
-    if code is not None and len(code) > FILE_CONTENT_MAX:
+    if len(code) > FILE_CONTENT_MAX:
         raise LabError("That file is too large to save.", 400)
     pid = _new_id()
     now = now_iso()
     template = (template or "blank").strip().lower()
-    seeds = TEMPLATE_SEEDS.get(template)
-    if seeds is None:
-        # A template the server does not ship (the browser's custom strategies)
-        # still creates one file: the code the wizard sent, or the blank seed.
-        if code is None:
-            template = "blank"
-            seeds = TEMPLATE_SEEDS["blank"]
-        else:
-            seeds = [("workspace/main.py", "")]
+    # One file, holding exactly the text the client showed the reader. The
+    # starter templates live in frontend/src/lab/templates.ts and nowhere
+    # else, so a server copy can never fall behind them; the id below is only
+    # a label on the row.
+    path = f"workspace/{_strategy_slug(file_name)}.py" if file_name else "workspace/main.py"
     execute(
         "INSERT INTO lab_projects (id, workspace_id, name, template, created_at)"
         " VALUES (?, ?, ?, ?, ?)",
         [pid, workspace_id, name, template, now],
     )
-    for index, (path, content) in enumerate(seeds):
-        if index == 0 and file_name and path.endswith("main.py"):
-            path = f"workspace/{_strategy_slug(file_name)}.py"
-        if index == 0 and code is not None:
-            content = code
-        execute(
-            "INSERT INTO lab_files (project_id, path, content, locked, updated_at)"
-            " VALUES (?, ?, ?, 0, ?)",
-            [pid, path, content, now],
-        )
+    execute(
+        "INSERT INTO lab_files (project_id, path, content, locked, updated_at)"
+        " VALUES (?, ?, ?, 0, ?)",
+        [pid, path, code, now],
+    )
     # A new workspace starts on the account's Lab defaults; from here on its
     # settings are its own, so changing one workspace never moves another.
     seed_project_settings(user_id, pid, settings)
-    return {"id": pid, "name": name, "created_at": now, "file_count": len(seeds)}
+    return {"id": pid, "name": name, "created_at": now, "file_count": 1}
 
 
 def add_workspace_strategy(
@@ -586,7 +570,7 @@ def add_workspace_strategy(
     name: str,
     template: str,
     *,
-    code: str | None = None,
+    code: str,
     settings: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     owner = execute_one(
@@ -611,9 +595,7 @@ def add_workspace_strategy(
         )
     else:
         path = _unique_strategy_path(primary["id"], name)
-        save_project_file(
-            user_id, primary["id"], path, code if code is not None else _template_code(template),
-        )
+        save_project_file(user_id, primary["id"], path, code)
     summary = get_workspace(user_id, workspace_id)
     if not summary:
         raise LabError("Could not read the workspace after saving the strategy.", 500)
@@ -1023,176 +1005,6 @@ def delete_lab_backtest(user_id: str, backtest_id: str) -> bool:
     return True
 
 
-# -------- Template seeds --------
-# The starter file each project template creates. Ids match the Lab wizard's
-# template list, so the preview it shows is the file the project opens with.
-_BLANK_SEED = '''\
-from sltp import Order, StockData, Strategy
-
-
-class MyStrategy(Strategy):
-    """A strategy skeleton. Fill in on_signal to return orders."""
-
-    def __init__(self):
-        super().__init__()
-        self.name = "My strategy"
-        self.MAX_POSITIONS = 10
-        self.ALLOCATION = 0.10
-        self.MIN_BARS_REQUIRED = 60
-
-    def initialize_universe(self, current_date, histories):
-        # The names this strategy is allowed to trade. Change them freely;
-        # the engine hands each one's history to on_signal.
-        self.add_tickers(["AAPL", "MSFT", "NVDA", "SPY"])
-        return True
-
-    def on_signal(self, ticker: str, data: StockData) -> Order | None:
-        # Return an Order to trade, or None to leave this ticker alone.
-        return None
-'''
-
-_MOVING_AVERAGE_SEED = '''\
-import numpy as np
-
-from sltp import Order, OrderSizing, PositionType, StockData, Strategy
-
-
-class MovingAverageCrossover(Strategy):
-    """Buy when the 20-day average crosses above the 50-day average."""
-
-    def __init__(self):
-        super().__init__()
-        self.name = "Moving average crossover"
-        self.MAX_POSITIONS = 10
-        self.ALLOCATION = 0.10
-        self.MIN_BARS_REQUIRED = 60
-
-    def initialize_universe(self, current_date, histories):
-        # The names this strategy is allowed to trade. Change them freely;
-        # the engine hands each one's history to on_signal.
-        self.add_tickers(["AAPL", "MSFT", "NVDA", "SPY"])
-        return True
-
-    def on_signal(self, ticker: str, data: StockData) -> Order | None:
-        if ticker in self.open_tickers:
-            return None
-        closes = data.closes
-        if len(closes) < 51:
-            return None
-
-        fast_now = float(np.mean(closes[-20:]))
-        fast_prev = float(np.mean(closes[-21:-1]))
-        slow_now = float(np.mean(closes[-50:]))
-        slow_prev = float(np.mean(closes[-51:-1]))
-
-        if not (fast_prev <= slow_prev and fast_now > slow_now):
-            return None
-
-        close = float(closes[-1])
-        return Order(
-            ticker=ticker,
-            position_type=PositionType.LONG,
-            allocation=self.ALLOCATION,
-            sizing=OrderSizing.EQUITY,
-            stop_loss=round(close * 0.92, 2),
-            take_profit=round(close * 1.16, 2),
-        )
-'''
-
-_LOOPS_SEED = '''\
-from sltp import Order, OrderSizing, PositionType, StockData, Strategy
-
-
-class TwentyDayBreakout(Strategy):
-    """Buy when the close clears the highest close of the last 20 days."""
-
-    def __init__(self):
-        super().__init__()
-        self.name = "20-day breakout"
-        self.MAX_POSITIONS = 10
-        self.ALLOCATION = 0.10
-        self.MIN_BARS_REQUIRED = 60
-
-    def initialize_universe(self, current_date, histories):
-        # The names this strategy is allowed to trade. Change them freely;
-        # the engine hands each one's history to on_signal.
-        self.add_tickers(["AAPL", "MSFT", "NVDA", "SPY"])
-        return True
-
-    def on_signal(self, ticker: str, data: StockData) -> Order | None:
-        if ticker in self.open_tickers:
-            return None
-        closes = data.closes
-        if len(closes) < 21:
-            return None
-
-        highest = max(float(close) for close in closes[-21:-1])
-        close = float(closes[-1])
-        if close <= highest:
-            return None
-
-        return Order(
-            ticker=ticker,
-            position_type=PositionType.LONG,
-            allocation=self.ALLOCATION,
-            sizing=OrderSizing.EQUITY,
-            stop_loss=round(close * 0.93, 2),
-            take_profit=round(close * 1.18, 2),
-        )
-'''
-
-_FUNCTIONS_SEED = '''\
-from sltp import Order, OrderSizing, PositionType, StockData, Strategy
-
-
-def momentum(closes, days: int) -> float:
-    """How far the last close sits above the close N days ago, as a fraction."""
-    if len(closes) <= days:
-        return 0.0
-    past = float(closes[-days - 1])
-    return (float(closes[-1]) - past) / past if past else 0.0
-
-
-class Momentum(Strategy):
-    """Buy the ticker when its 20-day momentum turns positive."""
-
-    def __init__(self):
-        super().__init__()
-        self.name = "20-day momentum"
-        self.MAX_POSITIONS = 10
-        self.ALLOCATION = 0.10
-        self.MIN_BARS_REQUIRED = 60
-
-    def initialize_universe(self, current_date, histories):
-        # The names this strategy is allowed to trade. Change them freely;
-        # the engine hands each one's history to on_signal.
-        self.add_tickers(["AAPL", "MSFT", "NVDA", "SPY"])
-        return True
-
-    def on_signal(self, ticker: str, data: StockData) -> Order | None:
-        if ticker in self.open_tickers:
-            return None
-        closes = data.closes
-        if momentum(closes, 20) <= 0.03:
-            return None
-
-        close = float(closes[-1])
-        return Order(
-            ticker=ticker,
-            position_type=PositionType.LONG,
-            allocation=self.ALLOCATION,
-            sizing=OrderSizing.EQUITY,
-            stop_loss=round(close * 0.90, 2),
-            take_profit=round(close * 1.20, 2),
-        )
-'''
-
-TEMPLATE_SEEDS: dict[str, list[tuple[str, str]]] = {
-    "blank": [("workspace/main.py", _BLANK_SEED)],
-    "moving-average": [("workspace/main.py", _MOVING_AVERAGE_SEED)],
-    "loops": [("workspace/main.py", _LOOPS_SEED)],
-    "functions": [("workspace/main.py", _FUNCTIONS_SEED)],
-}
 
 # -------- Operator counts --------
 # Small aggregates for the morning report. Turso down reads as None instead

@@ -80,11 +80,16 @@ export const DATA: DocGroup = {
           kind: 'ul',
           items: [
             <>
-              One file per year, named <C>market_data_YYYY.bin</C>: a self-contained bundle with a short
-              preamble, a JSON header naming each symbol&apos;s rows and each column&apos;s offset, then the columns.
+              Five-year bundles under <C>MARKET_DATA/DAILY/US/</C>, named <C>1998-2002.bin</C>,{' '}
+              <C>2003-2007.bin</C> and so on. Each one is a self-contained container: a short preamble, a
+              JSON header naming each symbol&apos;s rows and each column&apos;s offset, then the columns. The
+              name is a label; the header decides which sessions the file holds.
             </>,
             <>
-              <C>market_actions.parquet</C> for splits and dividends.
+              <C>actions.parquet</C> inside each market directory for splits and dividends.
+            </>,
+            <>
+              <C>MARKET_DATA/DAILY/INTERNATIONAL/</C> for every listing outside the US, in the same shape.
             </>,
             <>
               Columns are fixed by the format: symbol and date as 16-bit integers,{' '}
@@ -97,8 +102,9 @@ export const DATA: DocGroup = {
           kind: 'p',
           text: (
             <>
-              A folder of parquet bars converts to this layout with the offline converter in{' '}
-              <C>sltp.data.build_flat</C>. After that, nothing about a run changes.
+              Writing that layout is not part of the package. <C>sltp</C> reads bundles and{' '}
+              <C>sltp data check</C> validates them, so the files must come from a publisher. Once
+              they are in place, nothing about a run changes.
             </>
           ),
         },

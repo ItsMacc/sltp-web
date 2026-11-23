@@ -64,14 +64,14 @@ class MinimumVolatility(Strategy):
 
     # -------- Universe --------
     # Build the first ranking, and keep the wider buffer for held names.
-    def initialize_universe(self, current_date: str, histories: dict[str, StockData]) -> bool:
+    def initialize_universe(self, current_date: str, histories: dict[str, StockData] | None = None) -> bool:
         self.tickers.clear()
         self._rank(histories)
         self.tickers = list(self.targets)
         return bool(self.tickers)
 
     # Refresh the ranking quarterly, keeping the buffer for names already held.
-    def on_rebalance(self, current_date: str, histories: dict[str, StockData]) -> None:
+    def on_rebalance(self, current_date: str, histories: dict[str, StockData] | None = None) -> None:
         self._rank(histories)
         self.tickers = list(self.targets)
 
@@ -102,7 +102,7 @@ class MinimumVolatility(Strategy):
 
     # -------- Ranking --------
     # Score every liquid stock by annualized close-to-close volatility.
-    def _rank(self, histories: dict[str, StockData]) -> None:
+    def _rank(self, histories: dict[str, StockData] | None = None) -> None:
         scored: list[tuple[str, float]] = []
 
         for ticker, history in histories.items():

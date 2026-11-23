@@ -149,8 +149,7 @@ export const GETTING_STARTED: DocGroup = {
         {
           kind: 'code',
           file: 'hold_three.py',
-          code: `from sltp import Order, PositionType, Strategy
-from sltp.backtesting import Backtester
+          code: `from sltp import Backtester, Order, PositionType, Strategy
 
 
 class HoldThree(Strategy):

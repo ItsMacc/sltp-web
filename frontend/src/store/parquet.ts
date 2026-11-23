@@ -25,7 +25,7 @@
 import initWasm, { readParquet, wasmMemory } from 'parquet-wasm';
 import wasmUrl from 'parquet-wasm/esm/parquet_wasm_bg.wasm?url';
 import { parseTable } from 'arrow-js-ffi';
-import { parquetMetadataAsync, parquetQuery } from 'hyparquet';
+import { parquetMetadataAsync, parquetQuery, parquetReadObjects } from 'hyparquet';
 import type { Data, Table, Vector } from 'apache-arrow';
 import { isFlatFile, readFlatBars, readFlatQuotes } from './flat';
 
@@ -49,6 +49,23 @@ export interface WorkerQuote {
 export interface CatalogEntry {
   ticker: string;
   name: string;
+  /** "US" or "INTERNATIONAL": which bundle directory holds the bars. */
+  universe: string;
+  /** Country label the catalogue uses: "US", "India", "Japan", … */
+  market: string;
+  country: string;
+  /** The listing venue, e.g. "NSE", "NYSE", "Tokyo". */
+  exchange: string;
+  /** ISO code the bars are quoted in, e.g. "INR". */
+  currency: string;
+}
+
+/** The daily FX table: one row per session, one column per currency. */
+export interface FxTable {
+  /** Day codes since 1970-01-01, ascending. */
+  days: Int32Array;
+  /** USD per one unit of the currency, e.g. 1 GBP = 1.31 USD. */
+  rates: Record<string, Float64Array>;
 }
 
 export interface QueryPerf {
@@ -67,7 +84,16 @@ const DAY_MS = 86_400_000;
 const BATCH_SIZE = 1_048_576;
 
 const BARS_COLUMNS = ['Symbol', 'Date', 'Open', 'High', 'Low', 'Close', 'Volume'];
-const CATALOG_COLUMNS = ['Symbol', 'Name'];
+/** Everything a search row and a quote header need, in one decode. */
+const CATALOG_COLUMNS = [
+  'Symbol',
+  'Name',
+  'Universe',
+  'Market',
+  'Country',
+  'Exchange',
+  'CurrencyCode',
+];
 
 let initPromise: Promise<void> | null = null;
 
@@ -341,7 +367,10 @@ export async function readQuotes(
   return { quotes: out, perf };
 }
 
-/** The ticker directory: two short columns, decoded whole. */
+/**
+ * The ticker directory: the search row plus the market facts a quote header
+ * needs (exchange, currency). Decoded whole — 19k short strings, once.
+ */
 export async function readCatalog(file: Blob): Promise<CatalogEntry[]> {
   await ensureInit();
   const bytes = new Uint8Array(await file.arrayBuffer());
@@ -350,20 +379,50 @@ export async function readCatalog(file: Blob): Promise<CatalogEntry[]> {
   const decode = (chunk: StringChunk, i: number): string => {
     const start = Number(chunk.offsets[i]);
     const end = Number(chunk.offsets[i + 1]);
-    return decoder.decode(chunk.values.subarray(start, end));
+    return decoder.decode(chunk.values.subarray(start, end)).trim();
   };
-  const tickers = stringChunks(childVector(table, 'Symbol'));
-  const names = stringChunks(childVector(table, 'Name'));
+  const columns = CATALOG_COLUMNS.map((name) => stringChunks(childVector(table, name)));
+  const [tickers, names, universes, markets, countries, exchanges, currencies] = columns;
   const out: CatalogEntry[] = [];
-  for (let c = 0; c < tickers.length; c += 1) {
-    const tick = tickers[c]!;
-    const name = names[c]!;
+  for (let c = 0; c < (tickers?.length ?? 0); c += 1) {
+    const tick = tickers![c]!;
     for (let i = 0; i < tick.length; i += 1) {
-      const ticker = decode(tick, i).trim();
-      const label = decode(name, i).trim();
-      if (ticker && label) out.push({ ticker, name: label });
+      const ticker = decode(tick, i);
+      const label = decode(names![c]!, i);
+      if (!ticker || !label) continue;
+      out.push({
+        ticker,
+        name: label,
+        universe: decode(universes![c]!, i) || 'US',
+        market: decode(markets![c]!, i),
+        country: decode(countries![c]!, i),
+        exchange: decode(exchanges![c]!, i),
+        currency: decode(currencies![c]!, i) || 'USD',
+      });
     }
   }
   out.sort((a, b) => (a.ticker < b.ticker ? -1 : a.ticker > b.ticker ? 1 : 0));
   return out;
+}
+
+/**
+ * The daily FX table, whole. It is ~310KB and one row per session, so a
+ * ranged read would cost more bookkeeping than it saves.
+ */
+export async function readFx(file: Blob): Promise<FxTable> {
+  const rows = (await parquetReadObjects({
+    file: blobBuffer(file),
+  })) as Record<string, unknown>[];
+  const days = new Int32Array(rows.length);
+  const rates: Record<string, Float64Array> = {};
+  for (let i = 0; i < rows.length; i += 1) {
+    const row = rows[i]!;
+    days[i] = Number(row.Date);
+    for (const name of Object.keys(row)) {
+      if (name === 'Date') continue;
+      const column = (rates[name] ??= new Float64Array(rows.length));
+      column[i] = Number(row[name]);
+    }
+  }
+  return { days, rates };
 }

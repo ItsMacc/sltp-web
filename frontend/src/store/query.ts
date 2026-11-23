@@ -14,10 +14,12 @@
 // Lab runs and the watchlist all ask here, never the files directly.
 
 import type { Bar } from '../components/Chart';
+import type { FxTable } from './parquet';
 import {
   bootMarketSync,
   ensureFile,
   ensureManifest,
+  FX_KEY,
   getActivePlan,
   getChunkFile,
   getManifest,
@@ -42,7 +44,8 @@ interface WorkerSuccess {
     string,
     { price: number; changePct: number; lastDate: string; prevDate: string | null; prevClose: number | null }
   >;
-  entries?: { ticker: string; name: string }[];
+  entries?: TickerInfo[];
+  fx?: FxTable;
   error?: string;
 }
 
@@ -205,9 +208,18 @@ async function queryFileQuotes(
 export interface TickerInfo {
   ticker: string;
   name: string;
+  /** "US" or "INTERNATIONAL". */
+  universe: string;
+  /** Country label: "US", "India", "Japan", … */
+  market: string;
+  country: string;
+  /** Listing venue, e.g. "NSE" or "NYSE". */
+  exchange: string;
+  /** ISO code the bars are quoted in. */
+  currency: string;
 }
 
-const CATALOG_KEY = 'SYMBOL_DATA/symbol_catalog.parquet';
+const CATALOG_KEY = 'MARKET_DATA/symbol_catalog.parquet';
 let catalogPromise: Promise<TickerInfo[]> | null = null;
 
 /**
@@ -236,6 +248,34 @@ export async function getTickerDirectory(): Promise<TickerInfo[]> {
 export interface Quote {
   price: number;
   changePct: number;
+}
+
+/** The daily FX table, parsed once per session. */
+let fxCache: FxTable | null = null;
+let fxPromise: Promise<FxTable> | null = null;
+
+/**
+ * USD per one unit of every currency the catalogue uses, keyed by day. It is
+ * the same 310KB table the engine converts with, so a chart and a backtest
+ * cannot disagree about a rate.
+ */
+export async function getFxTable(): Promise<FxTable> {
+  if (fxCache) return fxCache;
+  if (!fxPromise) {
+    fxPromise = (async () => {
+      await ensureManifest();
+      await ensureFile(FX_KEY);
+      const file = await getFile(FX_KEY);
+      if (!file) throw new Error('The FX table vanished after download');
+      const data = await runWorker({ kind: 'fx', file });
+      if (!data.fx) throw new Error('The FX table could not be parsed');
+      fxCache = data.fx;
+      return fxCache;
+    })().finally(() => {
+      fxPromise = null;
+    });
+  }
+  return fxPromise;
 }
 
 /**

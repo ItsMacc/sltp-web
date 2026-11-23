@@ -20,6 +20,7 @@
 import { supabase } from '../../lib/supabase';
 import { dropCachedBacktest, renameCachedBacktest } from './backtestCache';
 import * as guest from './guestStore';
+import { getTemplate, type LabTemplateId } from './templates';
 import {
   createLabBacktest as apiCreateLabBacktest,
   createLabFile as apiCreateLabFile,
@@ -194,6 +195,11 @@ export async function listLabWorkspaces(): Promise<LabWorkspace[]> {
   }
 }
 
+/** The starter file the wizard shows for a template id; blank when unknown. */
+function starterCode(template?: string): string {
+  return getTemplate((template ?? 'blank') as LabTemplateId).code;
+}
+
 export async function createLabWorkspace(input: {
   workspace_name: string;
   strategy_name: string;
@@ -203,7 +209,13 @@ export async function createLabWorkspace(input: {
 }): Promise<LabWorkspace> {
   if (await guestMode()) return guest.createLabWorkspace(input);
   const { token, userId } = await session();
-  const created = await apiCreateLabWorkspace(token, input);
+  // The server stores what it is sent and ships no starter of its own, so a
+  // caller that names a template without pasting its code still gets the file
+  // the wizard showed.
+  const created = await apiCreateLabWorkspace(token, {
+    ...input,
+    code: input.code ?? starterCode(input.template),
+  });
   await dropWorkspaces(userId);
   return created;
 }
@@ -244,7 +256,9 @@ export async function createLabStrategy(
 ): Promise<LabWorkspace> {
   if (await guestMode()) return guest.createLabStrategy(workspaceId, name, template, code, settings);
   const { token, userId } = await session();
-  const created = await apiCreateLabStrategy(token, workspaceId, name, template, code, settings);
+  const created = await apiCreateLabStrategy(
+    token, workspaceId, name, template, code ?? starterCode(template), settings,
+  );
   await dropWorkspaces(userId);
   return created;
 }
@@ -257,7 +271,9 @@ export async function createLabProject(
 ): Promise<LabProject> {
   if (await guestMode()) return guest.createLabProject(workspaceId, name, template, settings);
   const { token, userId } = await session();
-  const created = await apiCreateLabProject(token, workspaceId, name, template, settings);
+  const created = await apiCreateLabProject(
+    token, workspaceId, name, starterCode(template), template, settings,
+  );
   await dropWorkspaces(userId);
   return created;
 }

@@ -26,6 +26,7 @@ export {
   queryFile,
   queryQuotes,
   getTickerDirectory,
+  getFxTable,
   chunkKeysForRange,
 } from './query';
 export type { Quote, TickerInfo } from './query';

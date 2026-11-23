@@ -128,22 +128,18 @@ export const HELP: DocGroup = {
           kind: 'p',
           text: <>None for the modelled ones. Slippage and fees are already in every fill. To stress-test a less liquid name, run a copy with a wider stop and a smaller size instead of padding the levels of this one.</>,
         },
-        { kind: 'h3', id: 'capacity', text: "We didn't expect this many people this month" },
+        { kind: 'h3', id: 'capacity', text: 'Why did downloads pause in the past?' },
         {
           kind: 'p',
-          text: <>Because that is exactly what happened. We sized our market-data budget for the number of people we thought would join this month, and more of you arrived than we planned for. When that budget runs out, new downloads pause for the rest of the month.</>,
+          text: <>Earlier builds sent every download through a small gateway Worker with a monthly read allowance, and a busy month could exhaust it. That gateway is gone. The browser now reads the public bucket directly, the same host the Python engine uses, so there is no monthly allowance left to exhaust.</>,
         },
         {
           kind: 'p',
-          text: <>What keeps working: everything already saved in your browser. Charts, strategies and the Lab keep running on the history that device has. What waits: history it has never downloaded, such as older years, or a first visit on a new device.</>,
+          text: <>What you may still see: a slow first visit, because the full archive is about 1.4GB and a cold browser has none of it. Charts paint the newest bundles first and older years fill in behind them, and the bytes that do arrive stay in this browser until you clear them.</>,
         },
         {
           kind: 'p',
-          text: <>When it comes back: the allowance renews on the 6th of each month. We are raising it as fast as we can, so it may return sooner. Nothing is lost in the meantime, and you do not have to do anything: the download continues by itself on the first visit after the reset.</>,
-        },
-        {
-          kind: 'p',
-          text: <>If a date has passed and you are still seeing this, write to <C>support@sltp-app.com</C> with what the toast said, and we will look at your account.</>,
+          text: <>If a download fails, the browser retries it on the next visit and the error names the file it could not get. Write to <C>support@sltp-app.com</C> with that message if it keeps happening.</>,
         },
       ],
     },
@@ -183,6 +179,27 @@ export const HELP: DocGroup = {
       title: 'Changelog',
       lead: 'What changed in the documentation and in the engine surface it describes.',
       blocks: [
+        { kind: 'h2', id: 'release-0-1-44', text: 'Release 0.1.44 — November 2026' },
+        {
+          kind: 'p',
+          text: <>Market data now comes straight from the public archive, and it covers far more than the United States. The engine moves to <C>0.1.44</C>, and a strategy written for 0.1.42 keeps working unchanged.</>,
+        },
+        {
+          kind: 'ul',
+          items: [
+            <><strong>No more gateway.</strong> The browser used to fetch every file through a small Worker with a monthly read allowance, and a busy month could pause downloads until that allowance reset. It now reads the same public archive the Python engine reads, so there is no allowance left to run out of. What is left is speed: a first visit still pulls the archive, about 1.4GB in all, newest five years first.</>,
+            <><strong>International listings.</strong> Roughly 7,400 companies outside the US are searchable now, from the NSE and the LSE to Tokyo and Toronto. Each one carries its exchange, its country and its quote currency, so a quote opens in the currency it trades in. A button beside the price converts it to yours at the day&apos;s rate, and the chart follows.</>,
+            <><strong>A currency setting.</strong> Settings has a new control, Converted price currency. It starts on Auto, which reads your region and falls back to USD, and you can pin any of eleven currencies instead.</>,
+            <><strong>Five-year files.</strong> Bars ship as five-year bundles, so 1998 to 2002 is one file. The next bundle is 2028-2032, and it arrives as a new file with no app update. A nightly refresh now rewrites a small tail rather than a whole year.</>,
+            <><strong>Backtests stay US.</strong> Long-run tests, the strategy catalogue and the Lab still run on US listings only. International names are for research and charts today, and backtesting them is a later release.</>,
+          ],
+        },
+        {
+          kind: 'callout',
+          tone: 'note',
+          title: 'One thing to know if your browser already had the old files',
+          text: <>Per-year files are not read any more. The first visit on this release clears them from the cache once, which frees the space they were holding.</>,
+        },
         { kind: 'h2', id: 'release-0-1-42', text: 'Release 0.1.42 — November 2026' },
         {
           kind: 'p',
@@ -213,8 +230,8 @@ volume = data.volumes[-20:]`,
         {
           kind: 'callout',
           tone: 'warning',
-          title: '_atr_stop is broken in 0.1.42',
-          text: <>The shipped helper reads <C>data.highss</C> and <C>data.lowss</C>, so <C>self._atr_stop(trade, 2.0)</C> raises <C>AttributeError</C>. Until 0.1.43, compute the ATR from <C>data.highs</C>, <C>data.lows</C> and <C>data.closes</C> yourself, or use <C>_trailing_stop</C>.</>,
+          title: '_atr_stop is still broken in 0.1.44',
+          text: <>The shipped helper reads <C>data.highss</C> and <C>data.lowss</C>, and <C>StockData</C> exposes neither, so <C>self._atr_stop(trade, 2.0)</C> raises <C>AttributeError</C> in 0.1.44 as well. Compute the ATR from <C>data.highs</C>, <C>data.lows</C> and <C>data.closes</C> yourself, or use <C>_trailing_stop</C>.</>,
         },
         { kind: 'h2', id: 'release-0-1-41', text: 'Release 0.1.41 — November 2026' },
         {
@@ -261,16 +278,16 @@ Order(ticker, position_type, allocation, stop_loss, take_profit, meta_data, sizi
         { kind: 'h2', id: 'release-0-1-39', text: 'Release 0.1.39 — November 2026' },
         {
           kind: 'p',
-          text: <>The container bars are stored in changed. A year is one self-contained file under <C>MARKET_DAILY/</C>: a short preamble, a JSON header naming each symbol&apos;s rows and each column&apos;s offset, then the columns in raw little-endian order. The catalog and corporate actions stay parquet; only bars moved.</>,
+          text: <>The container bars are stored in five-year bundles under <C>MARKET_DATA/DAILY/</C>, one directory per market (<C>US</C> and <C>INTERNATIONAL</C>). Each bundle opens with a short preamble and a JSON header naming each symbol&apos;s rows and each column&apos;s offset, and the columns follow in raw little-endian order. The catalog, the FX table and corporate actions stay parquet; only bars are in bundles.</>,
         },
         {
           kind: 'ul',
           items: [
             <>Rows are stored symbol-major and date-ascending, so a reader slices one symbol&apos;s range instead of parsing parquet row groups and merging calendars.</>,
-            <>The engine&apos;s parquet bar path is gone: one header parser serves the engine, the converter and <C>sltp data check</C>, and choosing a range reads headers only. A folder of parquet bars still converts to bundles with the offline converter in <C>sltp.data.build_flat</C>.</>,
+            <>The engine&apos;s parquet bar path is gone: one header parser serves the engine and <C>sltp data check</C>, and choosing a range reads headers only. The package reads bundles; it does not write them, so a folder of parquet bars is not converted by <C>sltp</C> itself.</>,
             <><C>sltp data status</C> and <C>sltp data check</C> validate a bundle&apos;s header runs and payload sizes, and the sync, prune and R2 layout follow the same keys with <C>.bin</C> payloads.</>,
             'A full archive loads in about 3.9s with the raw payload against 5.7s gzipped, and a warm read takes about 0.9s, so the bundles are stored uncompressed.',
-            <>The sorted ticker list is cached instead of re-sorted every day, and no <C>StockData</C> view is built for a symbol under <C>MIN_BARS</C>.</>,
+            <>The sorted ticker list is cached instead of re-sorted every day, and the ticker directory only offers symbols that clear <C>MIN_TRADABLE_BARS</C> sessions.</>,
             <>Proof this is a container change and nothing else: the adaptive strategy over 2022&ndash;2026 ends at <C>172.6053</C> with 270 trades on every layout, and the 2020 buy-and-hold baseline still reads <C>118.0106477949049</C>.</>,
           ],
         },
@@ -372,16 +389,16 @@ Order(ticker, position_type, allocation, stop_loss, take_profit, meta_data, sizi
           kind: 'table',
           head: ['Runtime', 'Pinned sltp version'],
           rows: [
-            ['Browser engine (Pyodide)', '0.1.42'],
-            ['Lab (Pyodide)', '0.1.42'],
-            ['Backend', '>=0.1.42'],
+            ['Browser engine (Pyodide)', '0.1.44'],
+            ['Lab (Pyodide)', '0.1.44'],
+            ['Backend', '>=0.1.44'],
           ],
         },
         {
           kind: 'callout',
           tone: 'note',
           title: 'Versioning',
-          text: <>These docs track the <C>sltp</C> package on PyPI. The browser engine is pinned to <C>sltp 0.1.42</C>; the backend requires <C>sltp&gt;=0.1.42</C>. The backend and the site release separately; the headings below name behaviour, not a tagged build.</>,
+          text: <>These docs track the <C>sltp</C> package on PyPI. The browser engine is pinned to <C>sltp 0.1.44</C>; the backend requires <C>sltp&gt;=0.1.44</C>. The backend and the site release separately; the headings below name behaviour, not a tagged build.</>,
         },
       ],
     },

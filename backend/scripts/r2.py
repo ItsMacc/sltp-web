@@ -70,15 +70,23 @@ def _config() -> tuple[str, str, str, str]:
 
 
 # -------- Signed requests --------
-def s3(method: str, key: str, body: bytes | None = None, timeout: int = 300) -> bytes:
+def s3(method: str, key: str, body: bytes | None = None, timeout: int = 300,
+       headers: dict[str, str] | None = None, with_headers: bool = False):
     """One SigV4-signed R2 request. Retries 5xx/429; 4xx raise with R2's
     own XML error body attached, because a bare 403 once cost a full
-    round of detective work (it was the secret, not the signing code)."""
+    round of detective work (it was the secret, not the signing code).
+
+    `headers` adds request headers (a Range read, for one bundle's header)
+    and they are signed like every other header. `with_headers` returns
+    (body, response headers) instead of the body, so a caller can read
+    Content-Length from a HEAD.
+    """
     host, bucket, key_id, secret = _config()
     now = datetime.now(timezone.utc)
     stamp, datestamp = now.strftime("%Y%m%dT%H%M%SZ"), now.strftime("%Y%m%d")
     payload_hash = "UNSIGNED-PAYLOAD" if body is not None else hashlib.sha256(b"").hexdigest()
-    headers = {"host": host, "x-amz-content-sha256": payload_hash, "x-amz-date": stamp}
+    headers = {"host": host, "x-amz-content-sha256": payload_hash, "x-amz-date": stamp,
+               **{name.lower(): str(value) for name, value in (headers or {}).items()}}
     if body is not None:
         headers["content-type"] = "application/octet-stream"
         headers["content-length"] = str(len(body))
@@ -102,7 +110,8 @@ def s3(method: str, key: str, body: bytes | None = None, timeout: int = 300) -> 
     for attempt in range(4):
         try:
             with urlopen(req, timeout=timeout) as resp:
-                return resp.read()
+                payload = resp.read()
+                return (payload, dict(resp.headers)) if with_headers else payload
         except urllib.error.HTTPError as e:
             if e.code is not None and 400 <= e.code < 500 and e.code != 429:
                 try:

@@ -26,7 +26,7 @@ export const RESULTS: DocGroup = {
         {
           kind: 'code',
           file: 'inspect.py',
-          code: `from sltp.backtesting import Backtester
+          code: `from sltp import Backtester
 
 result = Backtester(strategy, "2020-01-01", "2024-12-31").run()
 

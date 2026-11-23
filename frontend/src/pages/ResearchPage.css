@@ -608,6 +608,24 @@
   color: var(--text-secondary);
 }
 
+/* Venue line under a foreign ticker: exchange · country. */
+.quote-venue {
+  display: block;
+  margin-top: 0.125rem;
+  font-size: 0.9375rem; /* 15px */
+  color: var(--text-secondary);
+}
+
+.quote-conversion-note {
+  margin: 0.375rem 0 0;
+  font-size: 0.9375rem;
+  color: var(--text-secondary);
+}
+
+.quote-currency-toggle {
+  white-space: nowrap;
+}
+
 .quote-controls {
   display: flex;
   align-items: center;

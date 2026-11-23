@@ -31,7 +31,7 @@ BACKEND_DIR: str = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REPO_DIR: str = os.path.dirname(BACKEND_DIR)
 sys.path.insert(0, BACKEND_DIR)
 
-from sltp.backtesting import Backtester  # noqa: E402  (needs the path above)
+from sltp import Backtester  # noqa: E402  (needs the path above)
 
 from strategies.adaptive_momentum import AdaptiveMomentum  # noqa: E402
 from strategies.benchmark import Benchmark  # noqa: E402

@@ -12,8 +12,23 @@
 
 import { supabase } from './supabase'
 import { readSession, sessionKeyFor, writeSession } from './sessionCache'
+import { isCurrencyChoice, type CurrencyChoice } from './currency'
 
 export type ResearchTimeframe = '1y' | '2y' | '5y' | '10y' | 'all'
+
+/**
+ * The currency the "show in my currency" button converts to.
+ *
+ * "auto" reads the browser's region on every use, so somebody who moves does
+ * not have to remember a setting. A code is a deliberate choice and wins.
+ */
+export const DEFAULT_PRICE_CURRENCY: CurrencyChoice = 'auto'
+
+/** Read the saved choice, tolerating a missing key or junk. */
+export function readPriceCurrency(settings?: UserSettings | null): CurrencyChoice {
+  const raw = settings?.priceCurrency
+  return isCurrencyChoice(raw) ? raw.toUpperCase() as CurrencyChoice : DEFAULT_PRICE_CURRENCY
+}
 
 /** The preferences object stored on the user row. Free-form by design. */
 export type UserSettings = { theme?: string; [key: string]: any }

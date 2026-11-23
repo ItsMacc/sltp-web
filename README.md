@@ -47,7 +47,7 @@ class Benchmark(Strategy):
         return True
 
 
-result = run(Benchmark(), start_date="2020-01-01", end_date="2021-12-31")
+result = run(Benchmark(), start="2020-01-01", end="2021-12-31")
 
 print(result["stats"]["cagr"])   # 21.57
 print(len(result["trades"]))     # 1
@@ -83,7 +83,7 @@ class TwoFunds(Strategy):
         )
 
 
-result = run(TwoFunds(), start_date="2015-01-01", end_date="2024-12-31")
+result = run(TwoFunds(), start="2015-01-01", end="2024-12-31")
 print(result["stats"])
 ```
 

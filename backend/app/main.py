@@ -136,35 +136,72 @@ def list_strategies() -> list[dict]:
 
 
 # -------- Market data --------
+# The archive is one catalogue plus one bundle directory per market, and sltp
+# 0.1.44 reads both. These routes are a thin JSON face over that reader: the
+# site itself reads the same files in the browser, so nothing here is on the
+# chart path.
+
+_CATALOGUE: dict[str, dict] | None = None
+
+
+def _catalogue() -> dict[str, dict]:
+    """Symbol -> name, venue and quote currency, read once per process."""
+    global _CATALOGUE
+    if _CATALOGUE is None:
+        import pyarrow.parquet as pq
+
+        from sltp.market.layout import CATALOG_NAME, symbol_data_dir
+
+        table = pq.read_table(
+            symbol_data_dir() / CATALOG_NAME,
+            columns=["Symbol", "Name", "Exchange", "CurrencyCode", "Market", "Universe"],
+        )
+        rows: dict[str, dict] = {}
+        for symbol, name, exchange, currency, market, universe in zip(
+            table.column("Symbol").to_pylist(),
+            table.column("Name").to_pylist(),
+            table.column("Exchange").to_pylist(),
+            table.column("CurrencyCode").to_pylist(),
+            table.column("Market").to_pylist(),
+            table.column("Universe").to_pylist(),
+        ):
+            rows[str(symbol)] = {
+                "ticker": str(symbol),
+                "name": str(name) if name else str(symbol),
+                "exchange": exchange,
+                "currency": currency,
+                "market": market,
+                "universe": universe,
+            }
+        _CATALOGUE = rows
+    return _CATALOGUE
 
 
 @app.get("/api/stock/ticker-details")
 def ticker_details() -> list[dict]:
-    from sltp.data.market_data_service import get_tradable_ticker_directory
+    from sltp.market import market_data
 
-    return [{"ticker": row["ticker"], "name": row["name"]} for row in get_tradable_ticker_directory()]
+    rows = _catalogue()
+    return [rows[symbol] for symbol in market_data.universe() if symbol in rows]
 
 
 @app.get("/api/stock/all-tickers")
 def all_tickers() -> list[str]:
-    from sltp.data.market_data_service import get_tradable_ticker_directory
+    from sltp.market import market_data
 
-    return sorted(row["ticker"] for row in get_tradable_ticker_directory())
+    return sorted(market_data.universe())
 
 
 @app.get("/api/stock/history")
 def stock_history(ticker: str, timeframe: str = "1y") -> dict:
-    from sltp.data.market_data_service import (
-        get_latest_trading_date,
-        get_stock_history,
-        get_stock_name,
-    )
+    from sltp.market import market_data
 
     symbol = ticker.upper().strip()
+    markets = ["US", "INTERNATIONAL"]
     try:
-        latest = get_latest_trading_date()
+        latest = market_data.latest_date(markets)
         start, end = _timeframe_range(timeframe, latest)
-        history = get_stock_history(symbol, start, end)
+        history = market_data.get_stock_history(symbol, start, end, markets=markets)
     except HTTPException:
         raise
     except Exception as exc:
@@ -181,9 +218,12 @@ def stock_history(ticker: str, timeframe: str = "1y") -> dict:
         }
         for i in range(len(dates))
     ]
+    info = _catalogue().get(symbol, {})
     return {
         "ticker": symbol,
-        "name": get_stock_name(symbol),
+        "name": info.get("name") or symbol,
+        "exchange": info.get("exchange"),
+        "currency": info.get("currency") or "USD",
         "timeframe": timeframe,
         "total_bars": len(bars),
         "data": _clean(bars),

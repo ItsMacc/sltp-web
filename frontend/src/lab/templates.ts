@@ -51,7 +51,7 @@ const BLANK = `from sltp import Order, OrderSizing, PositionType, RebalanceFrequ
 
 class MyStrategy(Strategy):
 
-    def initialize_universe(self, current_date: str, histories: dict[str, StockData]) -> bool:
+    def initialize_universe(self, current_date: str, histories: dict[str, StockData] | None = None) -> bool:
         # The tickers this strategy may trade.
         self.add_tickers(["AAPL", "MSFT", "NVDA", "SPY"])
         return True
@@ -60,7 +60,7 @@ class MyStrategy(Strategy):
         # Once per session, before any ticker is read.
         pass
 
-    def on_rebalance(self, current_date: str, histories: dict[str, StockData]) -> None:
+    def on_rebalance(self, current_date: str, histories: dict[str, StockData] | None = None) -> None:
         # When REBALANCE_FREQUENCY is due.
         pass
 

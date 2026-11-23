@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
       "dev": "vite",
-      "build": "tsc -b && vite build",
+      "build": "node scripts/check-python-sources.mjs && tsc -b && vite build",
+      "check:python": "node scripts/check-python-sources.mjs",
       "predeploy": "npm run build && node scripts/keep-previous-assets.mjs",
       "deploy": "gh-pages -d dist",
       "lint": "oxlint",

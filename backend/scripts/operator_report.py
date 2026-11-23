@@ -34,7 +34,7 @@ import requests
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app.config import (
-    GATEWAY_URL,
+    DATA_URL,
     SUPABASE_URL,
     SUPABASE_SERVICE_KEY,
     SUPABASE_TIMEOUT,
@@ -161,39 +161,37 @@ def usage_summary() -> dict[str, Any]:
     return usage
 
 
-# -------- Market gate --------
-# How many downloads the month refused, and who they were. The gate is the only
-# place these exist: the browser never reports back, so the counter it keeps is
-# the whole record. Missing or unreachable gate reads as None ("unknown"), never
-# as zero, so a quiet line cannot be mistaken for a quiet month.
-def fetch_gate_status() -> dict[str, Any] | None:
+# -------- Market data --------
+# The bucket is public and serves every byte itself, so there is no refused-read
+# counter any more. The brief reports what readers get instead: the published
+# version, the newest session and the bundle markets that exist. An unreachable
+# bucket reads as None ("unknown"), never as zero.
+def fetch_market_status() -> dict[str, Any] | None:
     try:
-        response = requests.get(f"{GATEWAY_URL}/__gate/status", timeout=SUPABASE_TIMEOUT)
+        response = requests.get(f"{DATA_URL}/META/manifest.json", timeout=SUPABASE_TIMEOUT)
         response.raise_for_status()
-        body = response.json()
-        return body if isinstance(body, dict) else None
+        manifest = response.json()
     except (requests.RequestException, ValueError):
         return None
-
-
-# The refused counts, named the way the operator thinks about them.
-def refused_summary(gate: dict[str, Any] | None) -> dict[str, Any] | None:
-    if not gate:
-        return None
-    refused = gate.get("refused") or {}
+    files = manifest.get("files") or []
+    bundles = [entry for entry in files if str(entry.get("key", "")).endswith(".bin")]
+    markets = sorted({
+        str(entry["key"]).split("/")[2]
+        for entry in bundles
+        if str(entry["key"]).count("/") >= 3
+    })
     return {
-        "fresh_new": refused.get("freshNew"),
-        "cache_cleared": refused.get("cacheCleared"),
-        "returning": refused.get("returning"),
-        "requests": refused.get("requests"),
-        "total": sum(v for v in refused.values() if isinstance(v, int)),
+        "version": manifest.get("version"),
+        "bundles": len(bundles),
+        "markets": markets,
+        "latest": max((str(entry.get("last_session") or "") for entry in bundles), default=""),
     }
 
 
 def build_report() -> dict[str, Any]:
     now = datetime.now(timezone.utc)
     accounts = fetch_auth_accounts()
-    gate = fetch_gate_status()
+    market = fetch_market_status()
     return {
         # The New York date, not the UTC one. The brief goes out at 17:30 ET, and
         # keyed on UTC a run after 19:00 ET is stamped with tomorrow's date —
@@ -205,8 +203,7 @@ def build_report() -> dict[str, Any]:
         "deletions": deletion_summary(now),
         "followed_strategies": followed_strategies(),
         "health": collect_health(),
-        "gate": gate,
-        "refused": refused_summary(gate),
+        "market": market,
     }
 
 
@@ -241,32 +238,19 @@ def format_text(report: dict[str, Any]) -> str:
         f"  total deleted:    {val(deletions.get('total'))}",
     ]
 
-    # The gate is not a table, so a missing count means "the Worker has not been
-    # redeployed yet" or "it could not be reached", never a schema problem.
-    def gval(v: Any) -> str:
-        return "unknown" if v is None else str(v)
-
-    gate = report.get("gate")
-    refused = report.get("refused")
-    lines += ["", "Failed to serve (this billing month)"]
-    if not refused:
-        lines.append("  gate unreachable — no count available")
+    # The bucket is not a table: a missing status means the manifest could not
+    # be read, never a schema problem.
+    market = report.get("market")
+    lines += ["", "Market data (public bucket)"]
+    if not isinstance(market, dict):
+        lines.append("  manifest unreachable — no status available")
     else:
         lines += [
-            f"  new users (no cache):    {gval(refused.get('fresh_new'))}",
-            f"  cache cleared:           {gval(refused.get('cache_cleared'))}",
-            f"  returning (has files):   {gval(refused.get('returning'))}",
-            f"  daily request line:      {gval(refused.get('requests'))}",
-            f"  total refused:           {gval(refused.get('total'))}",
+            f"  version:         {market.get('version') or 'unknown'}",
+            f"  newest session:  {market.get('latest') or 'unknown'}",
+            f"  bundles:         {market.get('bundles')}",
+            f"  markets:         {', '.join(market.get('markets') or []) or 'none'}",
         ]
-        if isinstance(gate, dict):
-            lines += [
-                "",
-                "Gate counters",
-                f"  reads used:      {gval(gate.get('used'))} of {gval(gate.get('hardLimit'))}",
-                f"  requests today:  {gval(gate.get('requests'))} of {gval(gate.get('requestLimit'))}",
-                f"  window:          {gval(gate.get('window'))} (resets {gval(gate.get('resetsAt'))})",
-            ]
     followed = report.get("followed_strategies") or []
     if followed:
         lines += ["", "Followed strategies"]

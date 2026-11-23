@@ -57,7 +57,7 @@ let activeRun: ActiveRun | null = null;
 const pendingAnalysis = new Map<number, (reply: AnalyzeReply) => void>();
 
 export interface AnalyzeRequest {
-  method: 'complete' | 'hover' | 'signature' | 'define' | 'diagnostics' | 'imports';
+  method: 'complete' | 'hover' | 'signature' | 'define' | 'diagnostics' | 'imports' | 'symbols';
   code: string;
   path: string;
   line: number;

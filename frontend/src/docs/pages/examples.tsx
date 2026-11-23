@@ -16,8 +16,7 @@ export const EXAMPLES: DocGroup = {
         {
           kind: 'code',
           file: 'hold_five.py',
-          code: `from sltp import Order, PositionType, Strategy
-from sltp.backtesting import Backtester
+          code: `from sltp import Backtester, Order, PositionType, Strategy
 
 
 class HoldFive(Strategy):
@@ -85,8 +84,7 @@ result = Backtester(HoldFive(), "2015-01-01", "2024-12-31").run()`,
           file: 'five_ten.py',
           code: `import numpy as np
 
-from sltp import Order, PositionType, Strategy
-from sltp.backtesting import Backtester
+from sltp import Backtester, Order, PositionType, Strategy
 
 
 class FiveTen(Strategy):
@@ -165,8 +163,7 @@ result = Backtester(FiveTen(), "2018-01-01", "2024-12-31").run()`,
           file: 'breakout.py',
           code: `import numpy as np
 
-from sltp import Order, PositionType, Strategy
-from sltp.backtesting import Backtester
+from sltp import Backtester, Order, PositionType, Strategy
 
 
 class Breakout(Strategy):
@@ -245,8 +242,7 @@ result = Backtester(Breakout(), "2019-01-01", "2024-12-31").run()`,
           file: 'rotation.py',
           code: `import numpy as np
 
-from sltp import Order, PositionType, RebalanceFrequency, Strategy
-from sltp.backtesting import Backtester
+from sltp import Backtester, Order, PositionType, RebalanceFrequency, Strategy
 
 
 class Rotation(Strategy):
@@ -344,8 +340,7 @@ result = Backtester(Rotation(), "2018-01-01", "2024-12-31").run()`,
           file: 'breakdown.py',
           code: `import numpy as np
 
-from sltp import Order, PositionType, Strategy
-from sltp.backtesting import Backtester
+from sltp import Backtester, Order, PositionType, Strategy
 
 
 class Breakdown(Strategy):

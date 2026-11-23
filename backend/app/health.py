@@ -4,8 +4,8 @@
 # function returning a Check, so a script, a route or a scheduled gate can call
 # one dependency without collecting the rest:
 #
-#   from app.health import check_turso, check_gate
-#   if not check_gate().ok: ...
+#   from app.health import check_turso, check_market_data
+#   if not check_market_data().ok: ...
 #
 # Each check catches its own failure and returns ok=False with the reason, so a
 # report is always produced even when a provider is down. Nothing here sends
@@ -32,7 +32,7 @@ from app.turso.client import execute
 # -------- Configuration --------
 SITE_URL: str = os.environ.get("PUBLIC_SITE_URL", "https://sltp-app.com")
 API_URL: str = os.environ.get("PUBLIC_API_URL", "https://sltp-web.onrender.com").rstrip("/")
-GATE_URL: str = os.environ.get("GATE_BASE_URL", "https://sltp-data.magicaltitan7.workers.dev").rstrip("/")
+DATA_URL: str = os.environ.get("SLTP_DATA_URL", "https://data.sltp-app.com").rstrip("/")
 R2_BUCKET: str = os.environ.get("R2_BUCKET", "sltp-market-data")
 
 HTTP_TIMEOUT: int = 15
@@ -157,35 +157,38 @@ def check_turso() -> Check:
     )
 
 
-# -------- Data gate --------
-def check_gate() -> Check:
+# -------- Market data --------
+# The bucket serves the bytes itself, so there is no gate counter to read. What
+# is worth reporting is what a reader actually gets: the published version, the
+# newest session, and whether every bundle market is still there.
+def check_market_data() -> Check:
     try:
-        status, ms, body = _get(f"{GATE_URL}/__gate/status")
+        status, ms, body = _get(f"{DATA_URL}/META/manifest.json")
         payload = json.loads(body)
     except Exception as exc:  # noqa: BLE001
-        return _result("gate", False, f"status endpoint failed: {exc}")
+        return _result("market_data", False, f"manifest failed: {exc}")
 
-    ok = status == 200 and isinstance(payload, dict)
-    used = int(payload.get("used", 0) or 0)
-    hard = int(payload.get("hardLimit", 0) or 0)
-    requests_made = int(payload.get("requests", 0) or 0)
-    request_limit = int(payload.get("requestLimit", 0) or 0)
+    files = payload.get("files") or []
+    bundles = [entry for entry in files if str(entry.get("key", "")).endswith(".bin")]
+    markets = sorted({
+        str(entry["key"]).split("/")[2]
+        for entry in bundles
+        if str(entry["key"]).count("/") >= 3
+    })
+    latest = max((str(entry.get("last_session") or "") for entry in bundles), default="")
+    ok = status == 200 and bool(bundles) and len(markets) >= 2
     detail = (
-        f"reads {used:,} / {hard:,} · requests {requests_made:,} / {request_limit:,}"
-        f" · window {payload.get('window', '?')}"
+        f"{len(bundles)} bundles · {', '.join(markets) or 'no markets'}"
+        f" · latest {latest or '?'} · version {payload.get('version', '?')}"
     )
     return _result(
-        "gate", ok, detail,
+        "market_data", ok, detail,
         status=status,
         latency_ms=ms,
-        window=payload.get("window"),
-        reads=used,
-        reads_limit=hard,
-        reads_pct=_pct(used, hard),
-        requests=requests_made,
-        requests_limit=request_limit,
-        requests_pct=_pct(requests_made, request_limit),
-        resets_at=payload.get("resetsAt"),
+        version=payload.get("version"),
+        bundles=len(bundles),
+        markets=",".join(markets),
+        latest_session=latest,
     )
 
 
@@ -335,7 +338,7 @@ CHECKS: tuple[tuple[str, Callable[[], Check]], ...] = (
     ("backend", check_backend),
     ("supabase", check_supabase),
     ("turso", check_turso),
-    ("gate", check_gate),
+    ("market_data", check_market_data),
     ("r2", check_r2),
     ("brevo", check_brevo),
 )

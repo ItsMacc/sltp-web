@@ -95,6 +95,23 @@ const darkColors = {
   'editorInfo.foreground': '#93C5FD',
 };
 
+/**
+ * The palette the page is painting right now.
+ *
+ * The stylesheet has two sources of truth: an explicit `data-theme` attribute
+ * when the account chose a side, and the OS preference when there is none
+ * (index.css darkens `:root:not([data-theme="light"])` inside the media
+ * query). Reading only the attribute left the editor white inside a dark page
+ * whenever the attribute was absent — a guest Lab, or a session that had just
+ * been cleared.
+ */
+export function readLabTheme(): 'vs' | 'vs-dark' {
+  const attribute = document.documentElement.getAttribute('data-theme')?.toLowerCase();
+  if (attribute === 'dark') return 'vs-dark';
+  if (attribute === 'light') return 'vs';
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'vs-dark' : 'vs';
+}
+
 export function applyLabEditorTheme(monaco: Monaco, theme: 'vs' | 'vs-dark') {
   const isDark = theme === 'vs-dark';
   const name = isDark ? 'sltp-dark' : 'sltp-light';

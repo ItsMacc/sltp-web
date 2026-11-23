@@ -52,13 +52,13 @@ class StatisticalMeanReversionStrategy(Strategy):
 
     # -------- Universe --------
     # Pick the first universe from the histories the manager hands over.
-    def initialize_universe(self, current_date: str, histories: dict[str, StockData]) -> bool:
+    def initialize_universe(self, current_date: str, histories: dict[str, StockData] | None = None) -> bool:
         self.tickers.clear()
         self.add_tickers(self._top_candidates(histories))
         return bool(self.tickers)
 
     # Keep held names, drop the rest, then fill the vacancies from today's ranking.
-    def on_rebalance(self, current_date: str, histories: dict[str, StockData]) -> None:
+    def on_rebalance(self, current_date: str, histories: dict[str, StockData] | None = None) -> None:
         for ticker in list(self.tickers):
             if ticker not in self.open_tickers:
                 self.remove_ticker(ticker)

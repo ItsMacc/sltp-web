@@ -83,6 +83,8 @@ import {
 import { IS_MOBILE } from '../store/device';
 import { isLabBacktestPayload, type LabBacktestPayload } from '../lab/backtestTypes';
 import {
+  checkNow,
+  ensureSymbolIndex,
   setJediBusy,
   setJediFileOpener,
   setJediProject,
@@ -90,7 +92,8 @@ import {
   setJediTarget,
   type Monaco,
 } from '../lab/jedi';
-import { applyLabEditorTheme } from '../lab/editorTheme';
+import { applyLabEditorTheme, readLabTheme } from '../lab/editorTheme';
+import { namingHasCandidates, uniqueDunder } from '../lab/completions';
 import { pickLocalFolder, type FolderFileMap } from '../lab/fileReader';
 import ImportFolderDialog from '../lab/ImportFolderDialog';
 import Button from '../ui/Button';
@@ -338,11 +341,11 @@ export default function LabEditorPage({ project, workspaceName, onBack }: LabEdi
   // Until the interpreter answers, the wait is counted out rather than shown
   // as a frozen label.
   const [analysisSeconds, setAnalysisSeconds] = useState(0);
-  const [editorTheme, setEditorTheme] = useState<'vs' | 'vs-dark'>(() => {
-    const saved = sessionStorage.getItem('st_user_theme')?.toLowerCase();
-    const theme = document.documentElement.getAttribute('data-theme')?.toLowerCase() ?? saved;
-    return theme === 'dark' ? 'vs-dark' : 'vs';
-  });
+  const [hideNamingSuggestions, setHideNamingSuggestions] = useState(false);
+  // The same palette the stylesheet is painting: the account's attribute when
+  // it is set, otherwise the OS preference. Reading the attribute alone left a
+  // white editor inside a dark page for any visit without one.
+  const [editorTheme, setEditorTheme] = useState<'vs' | 'vs-dark'>(readLabTheme);
   const [editorSettings] = useState<EditorSettings>(readEditorSettings);
   const [markerCounts, setMarkerCounts] = useState({ errors: 0, warnings: 0 });
   // The cursor readout lives in its own component, so moving the cursor does not re-render the page.
@@ -364,21 +367,27 @@ export default function LabEditorPage({ project, workspaceName, onBack }: LabEdi
   const editorRef = useRef<Parameters<OnMount>[0] | null>(null);
   const monacoRef = useRef<Monaco | null>(null);
   const lineIdRef = useRef(0);
+  const appendLineRef = useRef<(kind: OutputLine['kind'], text: string) => void>(() => undefined);
+  const printedErrorsRef = useRef(new Set<string>());
 
   // Monaco registers its keybindings once, so they read the latest handlers through these refs.
   const saveActiveRef = useRef<() => void>(() => {});
   const runActiveRef = useRef<() => void>(() => {});
 
-  // Keep the editor in sync with the site theme, including preference changes while open.
+  // Keep the editor in sync with the site theme, including preference changes
+  // while open. With no `data-theme` attribute the stylesheet follows the OS,
+  // so the editor has to follow that media query too.
   useEffect(() => {
-    const syncEditorTheme = () => {
-      const theme = document.documentElement.getAttribute('data-theme')?.toLowerCase();
-      setEditorTheme(theme === 'dark' ? 'vs-dark' : 'vs');
-    };
+    const syncEditorTheme = () => setEditorTheme(readLabTheme());
     syncEditorTheme();
     const observer = new MutationObserver(syncEditorTheme);
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
-    return () => observer.disconnect();
+    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)');
+    prefersDark.addEventListener('change', syncEditorTheme);
+    return () => {
+      observer.disconnect();
+      prefersDark.removeEventListener('change', syncEditorTheme);
+    };
   }, []);
 
   // Opening a workspace should start at the top of the page, not at wherever the list was scrolled.
@@ -543,9 +552,27 @@ export default function LabEditorPage({ project, workspaceName, onBack }: LabEdi
     return ok;
   };
 
-  // The toolbar names one file, but the write covers every dirty one.
+  // Script errors reach the logs on a save and on nothing else: while a file is
+  // being written the gutter is the whole answer, and an autosave is not a
+  // decision worth interrupting.
+  const reportErrors = async () => {
+    const found = await checkNow();
+    if (!found) return;
+    const printed = printedErrorsRef.current;
+    for (const item of found.items) {
+      if (item.severity !== 1) continue;
+      const key = `${found.path}:${item.line}:${item.message}`;
+      if (printed.has(key)) continue;
+      if (printed.size > 400) printed.clear();
+      printed.add(key);
+      appendLineRef.current('stderr', `${found.path}:${item.line}: ${item.message}`);
+    }
+  };
+
+  // The toolbar names one file, but the write covers every dirty one. The check
+  // rides the save itself, so nothing here can fire while a key is being typed.
   const saveFile = async () => {
-    await flush();
+    if (await flush()) await reportErrors();
   };
 
   // -------- Analysis: jedi, inside the Python worker --------
@@ -653,6 +680,12 @@ export default function LabEditorPage({ project, workspaceName, onBack }: LabEdi
     return () => window.clearTimeout(timer);
   }, [active]);
 
+  // Reads the engine's public surface as soon as analysis can answer, so the
+  // first `self.` already knows the inherited methods.
+  useEffect(() => {
+    if (analysis === 'active') void ensureSymbolIndex();
+  }, [analysis]);
+
   useEffect(() => {
     if (analysis !== 'starting') return;
     const startedAt = Date.now();
@@ -678,6 +711,40 @@ export default function LabEditorPage({ project, workspaceName, onBack }: LabEdi
 
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => saveActiveRef.current());
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => runActiveRef.current());
+
+    // Enter on a half-typed dunder writes the whole signature, the way an IDE
+    // completes it, even when the suggestion list never opened: `def __ini`
+    // becomes `def __init__(self):` with the cursor on the body line. Every
+    // other Enter is left to the editor untouched.
+    editor.onKeyDown((event) => {
+      if (event.keyCode !== monaco.KeyCode.Enter) return;
+      if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+      if (editor.getSelections()?.length !== 1) return;
+      if (editor.getDomNode()?.querySelector('.suggest-widget.visible')) return;
+      const model = editor.getModel();
+      const position = editor.getPosition();
+      if (!model || !position) return;
+      const line = model.getLineContent(position.lineNumber);
+      const before = line.slice(0, position.column - 1);
+      // Only at the end of the line: with text after the cursor Enter means
+      // something else, and this is not the place to guess.
+      if (before.length !== line.length) return;
+      const decl = /^(\s*)(?:async\s+)?def\s+([A-Za-z_]\w*)$/.exec(before);
+      const name = decl ? uniqueDunder(decl[2]) : null;
+      if (!decl || !name) return;
+      event.preventDefault();
+      event.stopPropagation();
+      editor.executeEdits('lab-dunder-signature', [
+        {
+          range: monaco.Range.fromPositions(
+            new monaco.Position(position.lineNumber, position.column - decl[2].length),
+            new monaco.Position(position.lineNumber, position.column),
+          ),
+          text: `${name}(self):\n${decl[1]}    `,
+        },
+      ]);
+      editor.setPosition({ lineNumber: position.lineNumber + 1, column: decl[1].length + 5 });
+    });
     editor.onDidChangeCursorPosition((e) => {
       cursorListenerRef.current?.({ line: e.position.lineNumber, column: e.position.column });
     });
@@ -709,8 +776,33 @@ export default function LabEditorPage({ project, workspaceName, onBack }: LabEdi
     observer.observe(host);
     window.requestAnimationFrame(relayout);
 
+    // While a def is being named, the only suggestions that can exist are
+    // overrides and dunders. `def __ini` has `__init__` to offer, so the list
+    // opens and Enter can complete the signature; `def AAPL` has nothing, and
+    // an empty "No suggestions." box is what an IDE never shows, so quick
+    // suggestions stay off for exactly those lines. Ctrl+Space still asks.
+    let hiding = false;
+    const syncNaming = () => {
+      const model = editor.getModel();
+      const position = editor.getPosition();
+      if (!model || !position) return;
+      const before = model.getLineContent(position.lineNumber).slice(0, position.column - 1);
+      const decl = /^\s*(?:async\s+)?(def|class)\s+([A-Za-z_]\w*)?\s*$/.exec(before);
+      const next = decl
+        ? decl[1] === 'class' || !decl[2] || !namingHasCandidates(decl[2])
+        : false;
+      if (next === hiding) return;
+      hiding = next;
+      setHideNamingSuggestions(next);
+    };
+    const contentSub = editor.onDidChangeModelContent(syncNaming);
+    const cursorSub = editor.onDidChangeCursorPosition(syncNaming);
+    syncNaming();
+
     editor.onDidDispose(() => {
       markerSub.dispose();
+      contentSub.dispose();
+      cursorSub.dispose();
       observer.disconnect();
       if (pending) window.cancelAnimationFrame(pending);
       setJediTarget(null);
@@ -751,6 +843,9 @@ export default function LabEditorPage({ project, workspaceName, onBack }: LabEdi
     const id = lineIdRef.current;
     setOutput((prev) => [...prev.slice(-1999), { id, kind, text }]);
   };
+  // The diagnostics listener is registered once, so it reaches the current
+  // appender through a ref rather than re-subscribing on every render.
+  appendLineRef.current = appendLine;
 
   const runActive = async () => {
     if (!activeFile || running) return;
@@ -871,7 +966,7 @@ export default function LabEditorPage({ project, workspaceName, onBack }: LabEdi
   // The shortcut handler reads the latest closure through this ref.
   useEffect(() => {
     saveActiveRef.current = () => {
-      void flushRef.current();
+      void saveFile();
     };
     runActiveRef.current = () => {
       void runActive();
@@ -1633,14 +1728,23 @@ export default function LabEditorPage({ project, workspaceName, onBack }: LabEdi
                   options={{
                     readOnly: activeFile.locked,
                     // The VSCode feel: completions open as you type, after a
-                    // dot or quote, and while a call's arguments are typed.
-                    quickSuggestions: { other: 'on', comments: 'off', strings: 'on' },
+                    // dot, and while a call's arguments are typed. Off inside a
+                    // string and a comment, where this editor has nothing to
+                    // offer and the box would only say "No suggestions.".
+                    // Off too while a symbol is named: the only candidates are
+                    // overrides, and a name that matches none of them would
+                    // pop that same empty box an IDE never shows.
+                    quickSuggestions: hideNamingSuggestions
+                      ? false
+                      : { other: 'on', comments: 'off', strings: 'off' },
                     suggestOnTriggerCharacters: true,
                     acceptSuggestionOnEnter: 'on',
                     tabCompletion: 'on',
                     parameterHints: { enabled: true },
                     snippetSuggestions: 'inline',
-                    wordBasedSuggestions: 'currentDocument',
+                    // Our provider supplies this file's declared names, so the
+                    // word-based one would only add tickers and comment words.
+                    wordBasedSuggestions: 'off',
                     suggest: {
                       showStatusBar: true,
                       preview: true,

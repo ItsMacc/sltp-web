@@ -1,31 +1,38 @@
 // sync.ts — the background download sequence plus where files come from.
 //
-// First visit: check the manifest and fetch the plan (desktop: all 29 year
-// files; phone: the recent tail plus the five-calendar-year window), then on
-// desktop keep going backwards one year at a time. Every later boot reconciles
-// the plan against the manifest by byte count and fetches only what's missing
-// or changed — usually just the `recent` tail after a daily update, never a
-// wholesale re-download.
+// Files come straight from the public bucket (data.sltp-app.com), the same
+// host sltp reads: no gate Worker sits in front of the bytes. Every request
+// is one GET for one object, with the published version in the query string
+// so R2 and the browser can cache a version immutably, and a new version is a
+// new URL.
+//
+// First visit: check the manifest and fetch the plan — every bar bundle of
+// every market on a desktop, the newest bundles inside the phone's window on
+// a phone. Every later boot reconciles the plan against the manifest by byte
+// count and fetches only what is missing or changed; a daily update rewrites
+// the open bundle, so a second visit is cheaper than the first.
 // Progress is published to subscribers, so any page can show
 // "downloading…" while charts already paint what has landed.
 //
 // The plan is why "N of M files" always reads true: totalFiles counts the
 // plan's bars, and loadedFiles can only ever hold plan keys (plus nothing
-// else — sidecars ride along but are never counted). A phone shows 7 of 7
-// (the tail plus six calendar years), a desktop 30 of 30 (29 years plus the
-// tail), and neither can drift apart again.
+// else — sidecars ride along but are never counted).
 //
-// Cost model, measured Nov 2026: the desktop priority pair (tail + current
-// year) is ~28MB (~a couple of seconds on a fast link) and the full set
-// ~748MB; the phone plan (tail plus the five-year window) is smaller. Reads stay inside the
-// bucket's free Class B allowance because every file downloads once per
-// version and is read from disk afterwards.
+// Layout (sltp 0.1.44):
+//   META/manifest.json
+//   MARKET_DATA/symbol_catalog.parquet      every market, one table
+//   MARKET_DATA/fx.parquet                  daily FX to USD, one column per currency
+//   MARKET_DATA/DAILY/US/1998-2002.bin      one bundle per five-year block
+//   MARKET_DATA/DAILY/INTERNATIONAL/…​.bin  all international markets, one bundle per block
+//   MARKET_DATA/DAILY/<market>/actions.parquet
 //
-// The bucket is private: every byte comes through the gate Worker in
-// gateway/, which counts one R2 read per file and closes the month at
-// 9.95M. A device with no cache marks its requests `?new=1` so it may spend
-// the reserve above 9M; everything else stops at 9M. Nothing else in this
-// file knows about that.
+// A bundle carries its own header, so the file name is only a label: the
+// chunk plan reads the span out of the name and never depends on a fixed
+// chunk size. That is what lets 2028-2032 arrive without a code change.
+//
+// Cost model, measured Nov 2026: the full archive is ~1.4GB; the two newest
+// bundles plus the sidecars (what a chart needs first) are ~373MB. Every file
+// downloads once per data version and is read from disk afterwards.
 
 import { useSyncExternalStore } from 'react';
 import {
@@ -134,16 +141,31 @@ export function useMarketSyncStatus(): SyncStatus {
   return useSyncExternalStore(subscribeSyncStatus, getSyncStatus, getSyncStatus);
 }
 
-/** The gate in front of the private sltp-market-data bucket. */
-export const GATEWAY_BASE_URL =
-  'https://sltp-data.magicaltitan7.workers.dev';
+/** The bucket's public custom domain. R2 serves these keys directly. */
+export const DATA_BASE_URL = 'https://data.sltp-app.com';
 
 /** Small file naming which chunks exist and what data version they belong to. */
 export const MANIFEST_KEY = 'META/manifest.json';
 
-/** True until this device holds a downloaded dataset. A first sync is the one
-    kind of request the gate still serves once the month passes 9M reads. */
-let firstSync = true;
+/** Every bar bundle lives under this prefix, one directory per market. */
+export const DAILY_PREFIX = 'MARKET_DATA/DAILY/';
+
+/** One table of every symbol in every market, and the daily FX table. */
+export const CATALOG_KEY = 'MARKET_DATA/symbol_catalog.parquet';
+export const FX_KEY = 'MARKET_DATA/fx.parquet';
+
+/** Corporate actions sit beside each market's bundles. */
+const ACTIONS_NAME = 'actions.parquet';
+
+/** The two bundle markets the archive publishes. */
+export type BarMarket = 'US' | 'INTERNATIONAL';
+
+/** Which market a bundle belongs to: `MARKET_DATA/DAILY/US/x.bin` -> US. */
+export function marketOf(key: string): BarMarket | null {
+  if (!key.startsWith(DAILY_PREFIX)) return null;
+  const market = key.slice(DAILY_PREFIX.length).split('/')[0];
+  return market === 'US' || market === 'INTERNATIONAL' ? market : null;
+}
 
 export interface ManifestFile {
   key: string;
@@ -162,37 +184,12 @@ export interface Manifest {
   files: ManifestFile[];
 }
 
-/** This device's random id, so the gate can tell a returning downloader from
-    one that just emptied its cache. It lives in localStorage, next to the
-    session, not in the OPFS tree a cache clear removes. */
-const DEVICE_KEY = 'st_device_id';
-
-function deviceId(): string {
-  try {
-    const existing = localStorage.getItem(DEVICE_KEY);
-    if (existing) return existing;
-    const created = Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
-    localStorage.setItem(DEVICE_KEY, created);
-    return created;
-  } catch {
-    return '';
-  }
-}
-
-/** Query string for a gate call: the first-sync flag plus this device's id. */
-function gateQuery(first: boolean): string {
-  const params = new URLSearchParams();
-  if (first) params.set('new', '1');
-  const id = deviceId();
-  if (id) params.set('d', id);
-  const query = params.toString();
-  return query ? `?${query}` : '';
-}
-
 /** The published dataset version, e.g. "2026-11-11". A few bytes. */
 export async function fetchManifest(): Promise<Manifest> {
-  const res = await fetch(`${GATEWAY_BASE_URL}/manifest.json${gateQuery(firstSync)}`, {
-    cache: 'no-store',
+  // `no-cache` revalidates against the bucket's ETag: an unchanged manifest
+  // costs a 304, and a changed one is read in full. The object is tiny.
+  const res = await fetch(`${DATA_BASE_URL}/${MANIFEST_KEY}`, {
+    cache: 'no-cache',
   });
   if (!res.ok) throw new Error(`Manifest fetch failed (${res.status})`);
   const manifest = (await res.json()) as Manifest;
@@ -258,46 +255,47 @@ export function horizonDue(manifest: Manifest, horizon: UpdateHorizon, today = n
 }
 
 /**
- * The URL the browser downloads one file from: the gate's versioned path, so
- * a data version is immutable in the edge cache. `?new=1` only rides on a
- * device's first download; it never changes the cached URL, because the gate
- * keys its cache on the path alone.
+ * The URL the browser downloads one file from: the bucket key plus the
+ * published version as a query string. R2 keys its cache on the whole URL,
+ * so a version is immutable at the edge and in the browser while the same
+ * key can be rewritten in place by the nightly job.
  */
 export async function resolveFileUrl(key: string): Promise<string> {
   const version = manifestCache?.version;
-  const base = version ? `${GATEWAY_BASE_URL}/v/${version}` : GATEWAY_BASE_URL;
-  return `${base}/${key}${gateQuery(firstSync)}`;
+  const suffix = version ? `?v=${encodeURIComponent(version)}` : '';
+  return `${DATA_BASE_URL}/${key}${suffix}`;
 }
 
 /**
- * "market_data_2019.bin" / "market_data_2019.parquet" -> [2019, 2019];
- * the retired six-year parquet shape -> [1998, 2003]; anything else null
- * (the `recent` tail, the actions sidecar). Both bar formats flow through
- * the same logic, so a mixed manifest still plans and queries correctly.
+ * "1998-2002.bin" -> [1998, 2002]; a single-year "2019.bin" -> [2019, 2019];
+ * anything else null (the actions sidecar, the catalog, the FX table). The
+ * span is read from the name only for planning; the bundle's own header is
+ * the authority on which sessions it holds.
  */
 export function chunkRange(key: string): [number, number] | null {
-  const single = /market_data_(\d{4})\.(?:bin|parquet)$/.exec(key);
+  const range = /(\d{4})-(\d{4})\.bin$/.exec(key);
+  if (range) return [Number(range[1]), Number(range[2])];
+  const single = /(\d{4})\.bin$/.exec(key);
   if (single) return [Number(single[1]), Number(single[1])];
-  const range = /market_data_(\d{4})_(\d{4})\.parquet$/.exec(key);
-  if (!range) return null;
-  return [Number(range[1]), Number(range[2])];
+  return null;
 }
 
-/** Bar files only: MARKET_DAILY bars (year files plus the tail), no actions
-    sidecar, no catalog. */
+/** Bar bundles only: one .bin per market per block, never a sidecar. */
 function barKeys(files: ManifestFile[]): string[] {
   return files
     .map((f) => f.key)
-    .filter(
-      (key) =>
-        key.startsWith('MARKET_DAILY/') &&
-        (key.endsWith('.parquet') || key.endsWith('.bin')) &&
-        !key.endsWith('market_actions.parquet'),
-    );
+    .filter((key) => key.startsWith(DAILY_PREFIX) && key.endsWith('.bin'));
 }
 
-/** The ticker directory sidecar: small, and watchlist search will want it. */
-const CATALOG_KEY = 'SYMBOL_DATA/symbol_catalog.parquet';
+/** True when a manifest key is a bar bundle the plan may hold. */
+function isBarKey(key: string): boolean {
+  return key.startsWith(DAILY_PREFIX) && key.endsWith('.bin');
+}
+
+/** True for the small metadata files that ride along with the plan. */
+function isSidecarKey(key: string): boolean {
+  return key === CATALOG_KEY || key === FX_KEY || key.endsWith(`/${ACTIONS_NAME}`);
+}
 
 /**
  * The chunk keys this browser plans to hold, newest first. Phones keep the
@@ -391,7 +389,13 @@ export function newestFirst(keys: string[]): string[] {
     if (!ra && !rb) return a < b ? -1 : 1;
     if (!ra) return -1;
     if (!rb) return 1;
-    return rb[1] - ra[1];
+    if (rb[1] !== ra[1]) return rb[1] - ra[1];
+    // The same block in both markets: US first, then alphabetically, so the
+    // paint order is stable across boots.
+    const ma = marketOf(a) === 'US' ? 0 : 1;
+    const mb = marketOf(b) === 'US' ? 0 : 1;
+    if (ma !== mb) return ma - mb;
+    return a < b ? -1 : 1;
   });
 }
 
@@ -445,6 +449,27 @@ export async function refreshManifest(): Promise<Manifest> {
   return ensureManifest();
 }
 
+/**
+ * True when a manifest describes the five-year, multi-market archive this
+ * build reads (`MARKET_DATA/DAILY/<market>/YYYY-YYYY.bin`).
+ *
+ * A cache written before the layout change still has a `version.txt` that
+ * matches its own manifest, so freshness alone would trust per-year keys this
+ * reader never opens and plan zero downloads. The shape is the check.
+ */
+function manifestIsCurrentLayout(manifest: Manifest): boolean {
+  const markets = new Set<BarMarket>();
+  let bars = 0;
+  for (const file of manifest.files) {
+    const market = marketOf(file.key);
+    if (market === null) continue;
+    if (chunkRange(file.key) === null) continue;
+    markets.add(market);
+    bars += 1;
+  }
+  return bars > 0 && markets.has('US') && markets.has('INTERNATIONAL');
+}
+
 /** The update horizon, read once per call: a setting changed in another tab
     applies on the next boot, not mid-download. */
 function currentUpdateHorizon(): UpdateHorizon {
@@ -466,11 +491,12 @@ export async function ensureManifest(): Promise<Manifest> {
     manifestPromise = (async () => {
       const stored = await readVersion();
       const local = await readLocalManifest();
-      // A device with a marker or a local manifest has downloaded before, so
-      // its reads no longer come out of the reserve above the 9M line.
-      firstSync = stored === null && local === null;
       const horizon = currentUpdateHorizon();
-      const fresh = local !== null && stored === local.version && !horizonDue(local, horizon);
+      const fresh =
+        local !== null &&
+        stored === local.version &&
+        !horizonDue(local, horizon) &&
+        manifestIsCurrentLayout(local);
       const manifest = fresh ? local : await fetchManifest();
       if (!fresh) await writeLocalManifest(manifest);
       manifestCache = manifest;
@@ -488,28 +514,18 @@ export async function ensureManifest(): Promise<Manifest> {
   return manifestPromise;
 }
 
-/** Reads the gate's refusal body once, so the caller can show its words. */
-async function readPause(res: Response): Promise<SyncPause | null> {
-  try {
-    const body = (await res.clone().json()) as { paused?: boolean; message?: string };
-    if (!body?.paused) return null;
-    return {
-      message: body.message || 'Market data is briefly unavailable. Please try again later.',
-    };
-  } catch {
-    return null;
-  }
-}
-
-/** The files a chart needs first: the tail plus the current year file.
-    Always inside the plan — on a phone that pair IS the whole plan. */
+/** The files a chart needs first: the newest bundle of each market, so an
+    international name paints as soon as a US one does. Always inside the
+    plan — on a phone those bundles ARE the whole plan. */
 function priorityKeys(plan: string[]): string[] {
-  const recent = plan.filter((key) => key.includes('recent'));
-  const chunks = plan.filter((key) => chunkRange(key) !== null);
-  const newest = newestFirst(chunks)[0];
-  const priority = [...recent];
-  if (newest && !priority.includes(newest)) priority.push(newest);
-  return priority.length > 0 ? priority : plan.slice(0, 1);
+  const ordered = newestFirst(plan.filter((key) => chunkRange(key) !== null));
+  const priority: string[] = [];
+  for (const market of ['US', 'INTERNATIONAL'] as BarMarket[]) {
+    const newest = ordered.find((key) => marketOf(key) === market);
+    if (newest) priority.push(newest);
+  }
+  if (priority.length === 0) return plan.slice(0, 1);
+  return priority;
 }
 
 /** Three downloads at a time. The plan used to fetch one file after another,
@@ -579,15 +595,6 @@ async function storeFile(file: ManifestFile, track = true): Promise<void> {
       url = await resolveFileUrl(file.key);
       res = await fetch(url, { cache: 'no-store' });
     }
-    if (res.status === 503 || res.status === 429) {
-      // The gate closed the month (or the day). Its message is the one the
-      // toast and the FAQ both carry, so it travels up unchanged.
-      const pause = await readPause(res);
-      if (pause) {
-        setStatus({ paused: pause });
-        throw new Error(pause.message);
-      }
-    }
     if (!res.ok || !res.body) throw new Error(`Download failed (${res.status}): ${file.key}`);
     // Written straight from the response into OPFS: buffering a 28MB chunk as
     // a Blob is what iOS Safari reports as an out-of-memory `UnknownError`.
@@ -621,79 +628,6 @@ async function storeFile(file: ManifestFile, track = true): Promise<void> {
   if (track) markLoaded(file.key);
 }
 
-// -------- Bundles --------
-// A new device used to ask the gate for thirty files, which is thirty Worker
-// requests. `/bulk` answers all of them in one: a small header naming each
-// file's byte count, then the files back to back. The browser writes each file
-// as it arrives, so a 750MB bundle never sits in memory.
-
-const BULK_MAGIC_LENGTH = 8;
-/** 8-byte magic + u32 header length. */
-const BULK_PREAMBLE = 12;
-/** The gate's own ceiling is 64 keys and 1.2GB; stay inside both. */
-const BULK_MAX_FILES = 60;
-const BULK_MAX_BYTES = 1_000_000_000;
-
-/** Bytes already read from the bundle that the next file has not consumed. */
-interface ChunkCursor {
-  pending: Uint8Array | null;
-}
-
-/** Reads exactly `length` bytes, keeping any surplus for the next caller. */
-async function readExactly(
-  reader: ReadableStreamDefaultReader<Uint8Array>,
-  cursor: ChunkCursor,
-  length: number,
-): Promise<Uint8Array> {
-  const out = new Uint8Array(length);
-  let filled = 0;
-  while (filled < length) {
-    if (!cursor.pending) {
-      const { done, value } = await reader.read();
-      if (done) throw new Error('The bundle ended early');
-      cursor.pending = value;
-    }
-    const chunk = cursor.pending;
-    const take = Math.min(chunk.length, length - filled);
-    out.set(chunk.subarray(0, take), filled);
-    filled += take;
-    cursor.pending = take === chunk.length ? null : chunk.subarray(take);
-  }
-  return out;
-}
-
-/** One file's slice of the bundle, as a stream `putFileStream` can consume. */
-function takeBytes(
-  reader: ReadableStreamDefaultReader<Uint8Array>,
-  cursor: ChunkCursor,
-  total: number,
-): ReadableStream<Uint8Array> {
-  let remaining = total;
-  return new ReadableStream<Uint8Array>({
-    async pull(controller) {
-      if (remaining <= 0) {
-        controller.close();
-        return;
-      }
-      try {
-        if (!cursor.pending) {
-          const { done, value } = await reader.read();
-          if (done) throw new Error('The bundle ended early');
-          cursor.pending = value;
-        }
-        const chunk = cursor.pending;
-        const take = Math.min(chunk.length, remaining);
-        controller.enqueue(chunk.subarray(0, take));
-        remaining -= take;
-        cursor.pending = take === chunk.length ? null : chunk.subarray(take);
-        if (remaining === 0) controller.close();
-      } catch (error) {
-        controller.error(error);
-      }
-    },
-  });
-}
-
 /** True when the file on disk already matches the manifest's byte count. */
 async function isCurrent(file: ManifestFile): Promise<boolean> {
   const actual = await fileSize(file.key);
@@ -705,101 +639,30 @@ function noteDownloaded(file: ManifestFile): void {
   if (activePlan?.includes(file.key)) markLoaded(file.key);
 }
 
-/** One gate request for several files. Throws on any refusal or bad frame. */
-async function bulkDownload(files: ManifestFile[], version: string): Promise<void> {
-  const res = await fetch(`${GATEWAY_BASE_URL}/bulk${gateQuery(firstSync)}`, {
-    method: 'POST',
-    cache: 'no-store',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ version, keys: files.map((f) => f.key) }),
-  });
-
-  if (res.status === 503 || res.status === 429) {
-    const pause = await readPause(res);
-    if (pause) {
-      setStatus({ paused: pause });
-      throw new Error(pause.message);
-    }
-  }
-  if (res.status === 404) {
-    // A daily update landed since this page booted and the pinned version is
-    // gone; the per-file retry path re-reads the manifest.
-    throw new Error('Bundle version is gone');
-  }
-  if (!res.ok || !res.body) throw new Error(`Bundle failed (${res.status})`);
-
-  const reader = res.body.getReader();
-  const cursor: ChunkCursor = { pending: null };
-  const head = await readExactly(reader, cursor, BULK_PREAMBLE);
-  const magic = new TextDecoder().decode(head.slice(0, BULK_MAGIC_LENGTH));
-  if (magic !== 'SLTPBULK') throw new Error('Bundle header was not recognised');
-  const headerLength = new DataView(head.buffer).getUint32(BULK_MAGIC_LENGTH, true);
-  const header = JSON.parse(
-    new TextDecoder().decode(await readExactly(reader, cursor, headerLength)),
-  ) as { files?: { key: string; bytes: number }[] };
-  if (!Array.isArray(header.files)) throw new Error('Bundle header was malformed');
-
-  for (const entry of header.files) {
-    const file = files.find((f) => f.key === entry.key);
-    if (!file) throw new Error(`Bundle carried an unrequested file: ${entry.key}`);
-    let received = 0;
-    const count = (bytes: number): void => {
-      received += bytes;
-      setStatus({ bytesLoaded: status.bytesLoaded + bytes });
-    };
-    await putFileStream(entry.key, takeBytes(reader, cursor, entry.bytes), count);
-    setStatus({ bytesLoaded: status.bytesLoaded + Math.max(0, entry.bytes - received) });
-    noteDownloaded(file);
-  }
-  await reader.cancel().catch(() => undefined);
-}
-
 /**
- * Fetches a list in the fewest gate requests that fit: one bundle per batch,
- * with a per-file request only for whatever a bundle did not deliver. A gate
- * refusal stops the whole pass — asking again would only be refused again.
+ * Fetches a list of files, one GET each. Already-current files are skipped by
+ * byte count, and the lane limiter inside downloadFile keeps the number of
+ * concurrent streams bounded. One failure does not stop the rest: the first
+ * message is reported and the boot continues with what it could fetch.
  */
-async function fetchFiles(files: ManifestFile[], version: string): Promise<void> {
-  let batch: ManifestFile[] = [];
-  let bytes = 0;
-
-  const flush = async (): Promise<void> => {
-    if (batch.length === 0) return;
-    const group = batch;
-    batch = [];
-    bytes = 0;
-    if (group.length > 1) {
-      try {
-        await bulkDownload(group, version);
-        return;
-      } catch (error) {
-        if (status.paused) throw error;
-        // A bundle that breaks halfway leaves gaps; the loop below fills them
-        // one file at a time, exactly as the old path did.
-      }
-    }
-    for (const file of group) {
+async function fetchFiles(files: ManifestFile[]): Promise<void> {
+  const failures: string[] = [];
+  await Promise.all(
+    files.map(async (file) => {
       if (await isCurrent(file)) {
         noteDownloaded(file);
-        continue;
+        return;
       }
       try {
         await downloadFile(file);
       } catch (error) {
-        if (status.paused) throw error;
-        setStatus({ error: error instanceof Error ? error.message : `Could not fetch ${file.key}` });
+        failures.push(
+          error instanceof Error ? error.message : `Could not fetch ${file.key}`,
+        );
       }
-    }
-  };
-
-  for (const file of files) {
-    if (batch.length >= BULK_MAX_FILES || (batch.length > 0 && bytes + file.bytes > BULK_MAX_BYTES)) {
-      await flush();
-    }
-    batch.push(file);
-    bytes += file.bytes;
-  }
-  await flush();
+    }),
+  );
+  if (failures.length > 0) setStatus({ error: failures[0]! });
 }
 
 /**
@@ -848,13 +711,13 @@ async function runBoot(): Promise<void> {
   // Earlier builds wrote the marker as `__version.txt`, a name sltp's own
   // freshness check never read. One line drops the leftover; the marker now
   // lives at `version.txt`, where both readers look.
-  if (supported) await deleteFile('__version.txt');
+  if (supported) {
+    await deleteFile('__version.txt');
+    await sweepLegacyLayout();
+  }
   const stored = supported ? await readVersion() : null;
   const planList = planKeys(manifest.files);
   activePlan = planList;
-  // No version on disk means no bytes on disk: this device needs the reserve
-  // the gate keeps above its 9M line, so even the manifest is flagged.
-  firstSync = stored === null;
   setStatus({ version: manifest.version, totalFiles: planList.length });
 
   if (!supported) {
@@ -876,15 +739,12 @@ async function runBoot(): Promise<void> {
     // moves with the calendar.
     // Zero download cost, so this runs on metered links too.
     const planSet = new Set(planList);
-    const onDisk = await listFiles('MARKET_DAILY');
+    // listFiles walks the tree, so these read "US/1998-2002.bin" and
+    // "INTERNATIONAL/2023-2027.bin", one per bundle.
+    const onDisk = await listFiles('MARKET_DATA/DAILY');
     const stale = onDisk
-      .map((name) => `MARKET_DAILY/${name}`)
-      .filter(
-        (key) =>
-          (key.endsWith('.parquet') || key.endsWith('.bin')) &&
-          !key.endsWith('market_actions.parquet') &&
-          !planSet.has(key),
-      );
+      .map((name) => `${DAILY_PREFIX}${name}`)
+      .filter((key) => isBarKey(key) && !planSet.has(key));
     await Promise.all(
       stale.map(async (key) => {
         const bytes = await fileSize(key);
@@ -930,9 +790,7 @@ async function runBoot(): Promise<void> {
   // chart needs), then the two sidecars (search and dividends), then the older
   // eras newest first. Sizes were reconciled above, so this list is the work.
   const priority = priorityKeys(planList);
-  const sidecars = manifest.files
-    .filter((f) => f.key === CATALOG_KEY || f.key.endsWith('market_actions.parquet'))
-    .map((f) => f.key);
+  const sidecars = manifest.files.filter((f) => isSidecarKey(f.key)).map((f) => f.key);
   const wanted = new Set<string>();
   const needed: ManifestFile[] = [];
   for (const key of [...priority, ...sidecars, ...planList]) {
@@ -960,14 +818,15 @@ async function runBoot(): Promise<void> {
     return;
   }
 
-  // The gate carries the head of the plan in one request; the older eras are
-  // one or two more. Cellular still stops after the head and waits for a tap.
+  // The head of the plan is the newest bundle of each market plus the
+  // sidecars, so a chart paints on the first visit. Cellular still stops
+  // after the head and waits for a tap.
   const head = priority.length + sidecars.length;
   const first = needed.slice(0, head);
   const later = needed.slice(head);
 
   setStatus({ phase: 'priority' });
-  await fetchFiles(first, manifest.version);
+  await fetchFiles(first);
   await writeVersion(settledVersion());
 
   if (later.length === 0) {
@@ -979,7 +838,7 @@ async function runBoot(): Promise<void> {
     return;
   }
   setStatus({ phase: 'prefetch' });
-  await fetchFiles(later, manifest.version);
+  await fetchFiles(later);
   await writeVersion(settledVersion());
   setStatus({ phase: 'ready', olderDeferred: false });
 }
@@ -1005,7 +864,7 @@ export async function prefetchOlder(): Promise<void> {
     .filter((entry): entry is ManifestFile => entry !== undefined);
   for (const entry of entries) countBytes(entry);
   try {
-    await fetchFiles(entries, manifest.version);
+    await fetchFiles(entries);
     setStatus({ phase: 'ready' });
   } catch (err) {
     setStatus({
@@ -1050,20 +909,14 @@ function rememberPruned(entries: { key: string; bytes: number }[]): void {
   }
 }
 
-function isBarKey(key: string): boolean {
-  return (
-    key.startsWith('MARKET_DAILY/') &&
-    (key.endsWith('.parquet') || key.endsWith('.bin')) &&
-    !key.endsWith('market_actions.parquet')
-  );
-}
-
 /** Reads disk and manifest to say exactly what switching would do. */
 export async function previewDataPlan(years: DataPlanYears): Promise<DataPlanPreview> {
   const manifest = await ensureManifest();
   const next = new Set(planKeysFor(manifest.files, years));
   const bytesByKey = new Map(manifest.files.map((f) => [f.key, f.bytes]));
-  const onDisk = (await listFiles('MARKET_DAILY').catch(() => [])).map((name) => `MARKET_DAILY/${name}`);
+  const onDisk = (await listFiles('MARKET_DATA/DAILY').catch(() => [])).map(
+    (name) => `${DAILY_PREFIX}${name}`,
+  );
   const remove: { key: string; bytes: number }[] = [];
   for (const key of onDisk) {
     if (!isBarKey(key) || next.has(key)) continue;
@@ -1119,11 +972,7 @@ export function marketSyncBooted(): boolean {
  * files whose byte count changed are fetched.
  */
 export async function resyncMarketData(): Promise<void> {
-  // A device that already has a cache is not a new device: re-planning must
-  // not spend the gate's reserve as if this were a first visit.
-  const wasFirstSync = firstSync;
   resetMarketSyncForTests();
-  firstSync = wasFirstSync;
   await bootMarketSync();
 }
 
@@ -1131,11 +980,34 @@ export async function resyncMarketData(): Promise<void> {
 export function resetMarketSyncForTests(): void {
   bootPromise = null;
   manifestCache = null;
-  firstSync = true;
   activePlan = null;
   counted.clear();
   inflight.clear();
   setStatus({ ...INITIAL });
+}
+
+/** Marker: the old per-year layout has been swept from this browser. */
+const LEGACY_SWEPT = 'layout-2026.done';
+
+/**
+ * Deletes the cache layout sltp 0.1.44 never opens.
+ *
+ * Builds before the five-year bundles wrote `MARKET_DAILY/market_data_<year>.bin`,
+ * `SYMBOL_DATA/symbol_catalog.parquet` and a `BARS/` chart cache. None of it is
+ * read now, and together it is most of a gigabyte, so the first boot on the new
+ * layout removes it once and drops a marker. A browser that never had the old
+ * cache pays three failed directory lookups, which cost nothing.
+ */
+async function sweepLegacyLayout(): Promise<void> {
+  if (await hasFile(LEGACY_SWEPT)) return;
+  await removeDir('MARKET_DAILY');
+  await removeDir('SYMBOL_DATA');
+  await removeDir('BARS');
+  try {
+    await putFile(LEGACY_SWEPT, new Blob(['2'], { type: 'text/plain' }));
+  } catch {
+    // Without the marker the sweep simply runs again on the next boot.
+  }
 }
 
 /** The cached parquet bytes for one chunk (fetches first on a miss). */

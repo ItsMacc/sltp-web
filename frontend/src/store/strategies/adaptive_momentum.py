@@ -78,7 +78,7 @@ class AdaptiveMomentum(Strategy):
 
     # -------- Universe --------
     # Build the first ranking, and add the buffer so held names can be monitored.
-    def initialize_universe(self, current_date: str, histories: dict[str, StockData]) -> bool:
+    def initialize_universe(self, current_date: str, histories: dict[str, StockData] | None = None) -> bool:
         self.tickers.clear()
         self._ordered.clear()
         ranked = self._rank(histories)
@@ -86,7 +86,7 @@ class AdaptiveMomentum(Strategy):
         return bool(self.tickers)
 
     # Refresh the ranking monthly, keeping the wider buffer for names already held.
-    def on_rebalance(self, current_date: str, histories: dict[str, StockData]) -> None:
+    def on_rebalance(self, current_date: str, histories: dict[str, StockData] | None = None) -> None:
         ranked = self._rank(histories)
         self.tickers.clear()
         self.add_tickers(ranked[: self.BUFFER_N])
@@ -137,7 +137,7 @@ class AdaptiveMomentum(Strategy):
     # per ticker per monthly rank. The formulas mirror the scalar versions
     # exactly — same slices, same reductions, same skip conditions — so the
     # picks are unchanged; only the per-ticker Python overhead is gone.
-    def _rank(self, histories: dict[str, StockData]) -> list[str]:
+    def _rank(self, histories: dict[str, StockData] | None = None) -> list[str]:
         self.market_on = self._market_is_on(histories)
 
         names: list[str] = []
@@ -193,7 +193,7 @@ class AdaptiveMomentum(Strategy):
         return buffer
 
     # The market filter: SPY above its long moving average.
-    def _market_is_on(self, histories: dict[str, StockData]) -> bool:
+    def _market_is_on(self, histories: dict[str, StockData] | None = None) -> bool:
         spy = histories.get(self.MARKET_TICKER)
         if spy is None or len(spy.closes) < self.MARKET_SMA_BARS:
             return False

@@ -317,6 +317,9 @@ def reset_project():
 `;
 
 export const ANALYZER = `
+import ast
+import enum
+import inspect
 import json
 import sys
 from pathlib import Path
@@ -477,6 +480,443 @@ def _module_members(code, line, column):
     return items
 
 
+# Typed stubs for the engine, generated from the installed wheel. jedi reads
+# them instead of the package source, which is what turns "data." and
+# "result." into typed answers rather than an inference over a rectangle of
+# Python it has to guess about. They live outside sys.path so a backtest still
+# imports the real package.
+STUB_ROOT = ANALYZE_ROOT.parent / "stubs"
+
+_STUB_BUILTINS = {
+    "Any",
+    "None",
+    "bool",
+    "bytes",
+    "dict",
+    "float",
+    "frozenset",
+    "int",
+    "list",
+    "object",
+    "set",
+    "str",
+    "tuple",
+    "type",
+}
+
+_STUB_TYPES = {
+    "str": "str",
+    "int": "int",
+    "float": "float",
+    "bool": "bool",
+    "list": "list[Any]",
+    "dict": "dict[str, Any]",
+    "tuple": "tuple[Any, ...]",
+    "NoneType": "None",
+}
+
+
+_STUB_NAMES = {
+    "Annotated",
+    "Any",
+    "Callable",
+    "ClassVar",
+    "Dict",
+    "False",
+    "Final",
+    "FrozenSet",
+    "Iterable",
+    "Iterator",
+    "List",
+    "Literal",
+    "Mapping",
+    "None",
+    "Optional",
+    "Sequence",
+    "Set",
+    "True",
+    "Tuple",
+    "Type",
+    "Union",
+}
+
+
+def _stub_tokens(text):
+    """The parts of an annotation expression, or None when it is not one."""
+    tokens = []
+    index = 0
+    while index < len(text):
+        char = text[index]
+        if char == '"' or char == "'":
+            close = text.find(char, index + 1)
+            if close < 0:
+                return None
+            tokens.append(("literal", text[index:close + 1]))
+            index = close + 1
+            continue
+        if char.isalpha() or char == "_":
+            start = index
+            while index < len(text) and (text[index].isalnum() or text[index] == "_"):
+                index += 1
+            word = text[start:index]
+            # A dotted name keeps its last part: the stub defines the class, not
+            # the module path the class was reached through.
+            while (
+                index < len(text)
+                and text[index] == "."
+                and index + 1 < len(text)
+                and (text[index + 1].isalpha() or text[index + 1] == "_")
+            ):
+                index += 1
+                start = index
+                while index < len(text) and (text[index].isalnum() or text[index] == "_"):
+                    index += 1
+                word = text[start:index]
+            tokens.append(("name", word))
+            continue
+        if char.isdigit():
+            start = index
+            while index < len(text) and (text[index].isdigit() or text[index] == "."):
+                index += 1
+            tokens.append(("literal", text[start:index]))
+            continue
+        if char == ".":
+            start = index
+            while index < len(text) and text[index] == ".":
+                index += 1
+            tokens.append(("literal", text[start:index]))
+            continue
+        if char in " [](),|":
+            tokens.append(("mark", char))
+            index += 1
+            continue
+        return None
+    return tokens
+
+
+def _stub_expression(text, known):
+    """Rewrites an annotation, keeping every part the stub is able to name."""
+    tokens = _stub_tokens(text)
+    if not tokens:
+        return "Any"
+    out = []
+    index = 0
+    while index < len(tokens):
+        kind, value = tokens[index]
+        if kind != "name":
+            out.append(value)
+            index += 1
+            continue
+        look = index + 1
+        while look < len(tokens) and tokens[look] == ("mark", " "):
+            look += 1
+        subscripted = look < len(tokens) and tokens[look] == ("mark", "[")
+        if value in _STUB_TYPES and not subscripted:
+            # 'list' on its own holds anything; 'list[int]' keeps its own element
+            # type rather than turning into 'list[Any][int]'.
+            out.append(_STUB_TYPES[value])
+        elif subscripted and (value in _STUB_TYPES or value in _STUB_BUILTINS):
+            out.append(value)
+        elif value in _STUB_NAMES or value in _STUB_BUILTINS or value in known:
+            out.append(value)
+        else:
+            # An unknown base takes its subscript with it: 'Any[str]' is not an
+            # annotation, and a stub that will not parse helps nobody.
+            out.append("Any")
+            skip = index + 1
+            while skip < len(tokens) and tokens[skip] == ("mark", " "):
+                skip += 1
+            if skip < len(tokens) and tokens[skip] == ("mark", "["):
+                depth = 0
+                while skip < len(tokens):
+                    if tokens[skip] == ("mark", "["):
+                        depth += 1
+                    elif tokens[skip] == ("mark", "]"):
+                        depth -= 1
+                        if depth == 0:
+                            skip += 1
+                            break
+                    skip += 1
+            index = skip
+            continue
+        index += 1
+    return "".join(out).strip()
+
+
+def _stub_annotation(annotation, known):
+    """A stub-safe annotation, keeping everything this stub can name.
+
+    The editor shows these verbatim, so a Literal's choices and a list's element
+    type are the whole point: they are where a reader learns that an argument
+    takes "long" or "short" rather than any string. What cannot be named here
+    still becomes Any, but whole -- never left half-written, because 'Any[str]'
+    does not parse and a stub that does not parse is worse than none.
+    """
+    if annotation is inspect.Signature.empty:
+        return "Any"
+    if annotation is None:
+        return "None"
+    name = getattr(annotation, "__name__", None)
+    # A parameterised alias ('list[int]') is a type as well, but its parameters
+    # are the answer; only a bare class is named by its own name alone.
+    if isinstance(annotation, type) and not getattr(annotation, "__args__", None):
+        if name in _STUB_TYPES:
+            return _STUB_TYPES[name]
+        if name in known:
+            return name
+    text = str(annotation).replace("typing.", "")
+    if text.startswith("<class '") and text.endswith("'>"):
+        text = text[8:-2]
+    expression = _stub_expression(text, known)
+    try:
+        ast.parse(expression, mode="eval")
+    except SyntaxError:
+        return "Any"
+    return expression
+
+
+def _stub_default(value):
+    """The default as a reader would type it, or None when there is none.
+
+    A parameter popup is read for its defaults: 'period=...' withholds the one
+    fact the reader came for, while 'period=252' answers it. Only small literals
+    and enum members are reproduced -- anything else keeps the placeholder,
+    because a repr like a bare object address is noise that also lies.
+    """
+    if value is inspect.Parameter.empty:
+        return None
+    if value is None or isinstance(value, (bool, int, float, str, bytes)):
+        text = repr(value)
+        return text if len(text) <= 32 else "..."
+    if isinstance(value, enum.Enum):
+        return f"{type(value).__name__}.{value.name}"
+    if isinstance(value, tuple) and 0 < len(value) <= 4:
+        parts = []
+        for item in value:
+            rendered = _stub_default(item)
+            if rendered is None or rendered == "...":
+                return "..."
+            parts.append(rendered)
+        return "(" + ", ".join(parts) + ("," if len(parts) == 1 else "") + ")"
+    return "..."
+
+
+def _stub_signature(function, method=False, known=frozenset()):
+    """The parameter list plus return type, written the way a stub wants it."""
+    try:
+        signature = inspect.signature(function)
+    except (TypeError, ValueError):
+        return None
+    parts = ["self"] if method else []
+    # '*args' already marks the split; without a mark, a keyword-only parameter
+    # would be offered positionally in the popup and then rejected by the call.
+    saw_split = False
+    for parameter in signature.parameters.values():
+        if parameter.kind is parameter.KEYWORD_ONLY and not saw_split:
+            parts.append("*")
+            saw_split = True
+        rendered = parameter.name
+        if parameter.kind is parameter.VAR_POSITIONAL:
+            rendered = "*" + rendered
+            saw_split = True
+        elif parameter.kind is parameter.VAR_KEYWORD:
+            rendered = "**" + rendered
+        if parameter.annotation is not inspect.Parameter.empty:
+            rendered += ": " + _stub_annotation(parameter.annotation, known)
+        default = _stub_default(parameter.default)
+        if default is not None:
+            rendered += " = " + default
+        parts.append(rendered)
+    returns = ""
+    if signature.return_annotation is not inspect.Signature.empty:
+        returns = " -> " + _stub_annotation(signature.return_annotation, known)
+    return "(" + ", ".join(parts) + ")" + returns
+
+
+def _stub_source(package):
+    """One stub module for the package: classes, attributes, methods, constants."""
+    lines = [
+        "from typing import (Annotated, Any, Callable, ClassVar, Dict, Final,",
+        "                    FrozenSet, Iterable, Iterator, List, Literal, Mapping,",
+        "                    Optional, Sequence, Set, Tuple, Type, Union)",
+        "",
+        "",
+    ]
+
+    # sltp resolves its public names lazily, so dir() and getmembers() see an
+    # almost empty package. __all__ plus getattr is the surface it publishes.
+    names = {name for name, _ in inspect.getmembers(package) if not name.startswith("_")}
+    names.update(name for name in (getattr(package, "__all__", None) or []) if not name.startswith("__"))
+    values = {}
+    for candidate in sorted(names):
+        try:
+            values[candidate] = getattr(package, candidate)
+        except Exception:  # noqa: BLE001 - a lazy name that will not load
+            continue
+    known = {name for name, value in values.items() if inspect.isclass(value)}
+
+    def emit_class(name, cls):
+        body = []
+        seen = set()
+        for attribute, annotation in (getattr(cls, "__annotations__", None) or {}).items():
+            body.append(f"    {attribute}: {_stub_annotation(annotation, known)}")
+            seen.add(attribute)
+        try:
+            properties = inspect.getmembers(cls, lambda member: isinstance(member, property))
+        except Exception:  # noqa: BLE001 - a broken descriptor is not fatal
+            properties = []
+        for attribute, prop in properties:
+            if attribute.startswith("_") or attribute in seen:
+                continue
+            fget = prop.fget
+            annotation = getattr(fget, "__annotations__", {}).get("return")
+            body.append(f"    {attribute}: {_stub_annotation(annotation, known)}")
+            seen.add(attribute)
+        try:
+            members = inspect.getmembers(cls, inspect.isfunction)
+        except Exception:  # noqa: BLE001
+            members = []
+        for member, function in members:
+            if member.startswith("_") or member in seen:
+                continue
+            body.append(
+                f"    def {member}{_stub_signature(function, known=known) or '(self, *args, **kwargs)'}: ..."
+            )
+            seen.add(member)
+        try:
+            instance = cls()
+        except Exception:  # noqa: BLE001 - not every class is constructible
+            instance = None
+        if instance is not None:
+            for member in dir(instance):
+                if member.startswith("_") or member in seen:
+                    continue
+                try:
+                    value = getattr(instance, member)
+                except Exception:  # noqa: BLE001
+                    continue
+                if callable(value):
+                    text = _stub_signature(value, method=True, known=known)
+                    body.append(f"    def {member}{text or '(self, *args, **kwargs)'}: ...")
+                else:
+                    body.append(f"    {member}: {_stub_annotation(type(value), known)}")
+                seen.add(member)
+        lines.append(f"class {name}:")
+        lines.extend(body or ["    ..."])
+        lines.append("")
+
+    for name, value in values.items():
+        if inspect.ismodule(value):
+            continue
+        if inspect.isclass(value):
+            emit_class(name, value)
+        elif inspect.isfunction(value):
+            lines.append(f"def {name}{_stub_signature(value, known=known) or '(*args, **kwargs)'}: ...")
+            lines.append("")
+        elif not callable(value):
+            lines.append(f"{name}: {_stub_annotation(type(value), known)}")
+            lines.append("")
+    return "\\n".join(lines) + "\\n"
+
+
+def write_stubs():
+    """Writes the engine's stubs once per session, and never fails a completion."""
+    import ast
+
+    target = STUB_ROOT / "sltp" / "__init__.pyi"
+    if target.exists():
+        return True
+    try:
+        import sltp
+
+        source = _stub_source(sltp)
+        ast.parse(source)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(source, encoding="utf-8")
+        return True
+    except Exception:  # noqa: BLE001 - jedi falls back to reading the package
+        return False
+
+
+def symbol_index():
+    """The engine's public surface, for completions the editor can answer alone.
+
+    Built from the installed package, not from a list typed into the frontend:
+    a release that adds a knob or renames one appears in the completion popup
+    with no site change and no second copy to keep in sync.
+    """
+    import importlib
+
+    import sltp
+    import sltp.graphs
+    import sltp.utils
+    import sltp.web
+
+    def public(obj):
+        return sorted({name for name in dir(obj) if not name.startswith("__")})
+
+    def submodules(package):
+        # The market package is not lazy, but only the submodules that import
+        # are worth offering: a completion list is a promise the name works.
+        names = []
+        for name in package.__all__ if hasattr(package, "__all__") else ():
+            names.append(name)
+        for name in ("catalog", "fx", "index", "layout", "market_data", "remote", "service"):
+            try:
+                importlib.import_module(f"{package.__name__}.{name}")
+            except Exception:  # noqa: BLE001 - an absent submodule is not an error
+                continue
+            names.append(name)
+        return sorted(set(names))
+
+    try:
+        # The knobs and helpers are instance state as often as class members,
+        # so an instance is part of the answer.
+        strategy = sorted(set(public(sltp.Strategy)) | set(public(sltp.Strategy())))
+    except Exception:  # noqa: BLE001 - the class alone is still worth having
+        strategy = public(sltp.Strategy)
+
+    # Naming a method in a subclass is a request to override one; only the
+    # engine's own functions are candidates for that.
+    strategy_methods = sorted(
+        name
+        for name, member in inspect.getmembers(sltp.Strategy, inspect.isfunction)
+        if not name.startswith("_")
+    )
+
+    import sltp.market
+
+    write_stubs()
+
+    index = {
+        "sltp": sorted(
+            set(getattr(sltp, "__all__", None) or public(sltp))
+            | {"market", "graphs", "utils", "web"}
+        ),
+        "Strategy": [name for name in strategy if not name.startswith("__")],
+        "Strategy.methods": strategy_methods,
+        "StockData": public(sltp.StockData),
+        "Trade": sorted(sltp.Trade.__dataclass_fields__),
+        "Order": sorted(sltp.Order.__dataclass_fields__),
+        "OrderSizing": [member.name for member in sltp.OrderSizing],
+        "PositionType": [member.name for member in sltp.PositionType],
+        "RebalanceFrequency": [member.name for member in sltp.RebalanceFrequency],
+        "EventType": [member.name for member in sltp.EventType],
+        "sltp.web": public(sltp.web),
+        "sltp.utils": public(sltp.utils),
+        "sltp.market": submodules(sltp.market),
+        "sltp.graphs": public(sltp.graphs),
+    }
+    for name in ("Backtester", "PortfolioManager", "Event"):
+        held = getattr(sltp, name, None)
+        if held is not None:
+            try:
+                index[name] = public(held)
+            except Exception:  # noqa: BLE001 - optional surface
+                continue
+    return index
+
+
 # What the last analysis request wrote, so an unchanged file is not rewritten
 # on every keystroke.
 _ANALYZE_WRITTEN = {}
@@ -508,13 +948,25 @@ def analyze(method, code, path, line, column, files_json=""):
     if method == "imports":
         return json.dumps({"ok": True, "data": {"items": _import_candidates(code, line, column, files_json)}})
 
+    if method == "symbols":
+        try:
+            return json.dumps({"ok": True, "data": symbol_index()})
+        except Exception as exc:  # noqa: BLE001 - the popup falls back to keywords
+            return json.dumps({"ok": False, "error": str(exc)})
+
     try:
         import jedi
     except Exception as exc:  # noqa: BLE001
         return json.dumps({"ok": False, "error": "jedi is unavailable: " + str(exc)})
 
     try:
-        project = jedi.Project(root)
+        added = []
+        if (STUB_ROOT / "sltp" / "__init__.pyi").exists():
+            added.append(str(STUB_ROOT))
+        try:
+            project = jedi.Project(root, added_sys_path=added)
+        except TypeError:  # older jedi has no added_sys_path
+            project = jedi.Project(root)
         script = jedi.Script(code=code, path=str(current), project=project)
 
         if method == "complete":

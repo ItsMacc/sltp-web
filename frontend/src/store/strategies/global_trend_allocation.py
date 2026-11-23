@@ -18,7 +18,7 @@ from sltp import StockData
 from sltp import Trade
 from sltp import PositionType
 from sltp import RebalanceFrequency
-from sltp.utils.Dates import to_code
+from sltp.utils import to_code
 
 # -------- Global Trend Allocation Strategy --------
 class GlobalTrendAllocation(Strategy):
@@ -77,14 +77,14 @@ class GlobalTrendAllocation(Strategy):
             etf_universe &= set(self.ETF_UNIVERSE)
         return sorted(etf_universe)
 
-    def initialize_universe(self, current_date: str, histories: dict[str, StockData]) -> bool:
+    def initialize_universe(self, current_date: str, histories: dict[str, StockData] | None = None) -> bool:
         self.tickers.clear()
         active_targets = self._execute_selection_matrix(current_date, histories)
         self.tickers = active_targets
 
         return bool(self.tickers)
 
-    def on_rebalance(self, current_date: str, histories: dict[str, StockData]) -> None:
+    def on_rebalance(self, current_date: str, histories: dict[str, StockData] | None = None) -> None:
         active_targets = self._execute_selection_matrix(current_date, histories)
         self.tickers = active_targets
 
@@ -184,7 +184,7 @@ class GlobalTrendAllocation(Strategy):
                 )
         return window
 
-    def _execute_selection_matrix(self, current_date: str, histories: dict[str, StockData]) -> list[str]:
+    def _execute_selection_matrix(self, current_date: str, histories: dict[str, StockData] | None = None) -> list[str]:
         # Calculates all 5 structural allocations sequentially using historic data snapshots.
         # This is a global ETF book: rank the ETF universe, not every listed company.
         # The matrix never looks back more than a year (momentum, correlation)
@@ -312,7 +312,7 @@ class GlobalTrendAllocation(Strategy):
         return active_targets
 
     @staticmethod
-    def _sort_universe(histories: dict[str, StockData]) -> list[str]:
+    def _sort_universe(histories: dict[str, StockData] | None = None) -> list[str]:
         # Sorts all active available assets inside historical memory by median dollar volume
         volume_map = {}
         for ticker, data in histories.items():

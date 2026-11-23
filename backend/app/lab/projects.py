@@ -30,8 +30,8 @@ class WorkspaceCreateIn(BaseModel):
     workspace_name: str = Field(description="New workspace name.")
     strategy_name: str | None = Field(default=None, description="First strategy file, used as its filename.")
     project_name: str | None = Field(default=None, description="Deprecated alias for strategy_name.")
-    template: str = Field(default="blank", description="Starter template id. Used when code is not sent.")
-    code: str | None = Field(default=None, description="Exact starter code the wizard showed. Overrides the template seed.")
+    template: str = Field(default="blank", description="Recorded with the row; it does not pick starter text.")
+    code: str = Field(description="Exact starter code the wizard showed. Stored verbatim.")
     settings: dict[str, Any] | None = Field(
         default=None,
         description="Lab run settings the new workspace starts with.",
@@ -40,8 +40,8 @@ class WorkspaceCreateIn(BaseModel):
 
 class StrategyCreateIn(BaseModel):
     name: str = Field(description="Strategy file name, without the folder.")
-    template: str = Field(default="blank", description="Starter template id. Used when code is not sent.")
-    code: str | None = Field(default=None, description="Exact starter code the wizard showed. Overrides the template seed.")
+    template: str = Field(default="blank", description="Recorded with the row; it does not pick starter text.")
+    code: str = Field(description="Exact starter code the wizard showed. Stored verbatim.")
     settings: dict[str, Any] | None = Field(
         default=None,
         description="Lab run settings a workspace created here starts with.",
@@ -50,7 +50,8 @@ class StrategyCreateIn(BaseModel):
 
 class ProjectCreateIn(BaseModel):
     name: str = Field(description="Project name.")
-    template: str = Field(default="blank", description="Starter file set, same ids as above.")
+    template: str = Field(default="blank", description="Recorded with the project; it does not pick starter text.")
+    code: str = Field(description="Exact starter code the wizard showed. Stored verbatim.")
     settings: dict[str, Any] | None = Field(
         default=None,
         description="Lab run settings this workspace starts with; the account's defaults by default.",
@@ -169,7 +170,8 @@ async def create_project(
 ) -> dict[str, Any]:
     try:
         return userdata.create_project(
-            user["id"], workspace_id, body.name, body.template, settings=body.settings,
+            user["id"], workspace_id, body.name, body.template,
+            code=body.code, settings=body.settings,
         )
     except userdata.LabError as err:
         raise _lab_error(err)

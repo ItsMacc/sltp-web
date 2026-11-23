@@ -434,12 +434,13 @@ export async function createLabProject(
   token: string,
   workspaceId: string,
   name: string,
+  code: string,
   template?: string,
   settings?: Record<string, unknown>,
 ): Promise<LabProject> {
   return authedFetch(`/api/lab/workspaces/${workspaceId}/projects`, token, {
     method: 'POST',
-    body: JSON.stringify({ name, template: template ?? 'blank', settings }),
+    body: JSON.stringify({ name, template: template ?? 'blank', code, settings }),
   });
 }
 

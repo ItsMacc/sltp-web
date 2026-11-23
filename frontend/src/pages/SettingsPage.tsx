@@ -30,6 +30,7 @@ import {
   applyAndStoreUserSettings,
   isHeavyChartLimit,
   readChartMaxBars,
+  readPriceCurrency,
   readStrategyChartStyle,
   readUpdateHorizon,
   updateHorizonDays,
@@ -41,6 +42,13 @@ import {
   type UpdateHorizon,
   type UserSettings,
 } from '../../lib/settings';
+import {
+  CURRENCY_CODES,
+  currencyChoiceLabel,
+  currencyName,
+  isCurrencyChoice,
+  type CurrencyChoice,
+} from '../../lib/currency';
 import { useMarketSyncStatus } from '../store';
 import './SettingsPage.css';
 
@@ -100,6 +108,8 @@ export default function SettingsPage({ userId, userEmail, initialName, onProfile
   const [defaultZoom, setDefaultZoom] = useState(90);
   const [chartMaxBars, setChartMaxBars] = useState<ChartMaxBars>(DEFAULT_CHART_MAX_BARS);
   const [updateHorizon, setUpdateHorizon] = useState<UpdateHorizon>(DEFAULT_UPDATE_HORIZON);
+  /** The currency the converted-price button converts to. */
+  const [priceCurrency, setPriceCurrency] = useState<CurrencyChoice>('auto');
   /** A plan the reader picked but has not confirmed yet. */
   const [pendingPlan, setPendingPlan] = useState<DataPlanYears | null>(null);
 
@@ -204,6 +214,7 @@ export default function SettingsPage({ userId, userEmail, initialName, onProfile
           if (currentSettings.defaultZoom) setDefaultZoom(currentSettings.defaultZoom);
           setChartMaxBars(readChartMaxBars(currentSettings));
           setUpdateHorizon(readUpdateHorizon(currentSettings));
+          setPriceCurrency(readPriceCurrency(currentSettings));
 
           if (currentSettings.tradeSignals !== undefined) setTradeSignals(currentSettings.tradeSignals);
           if (currentSettings.securityWarnings !== undefined) setSecurityWarnings(currentSettings.securityWarnings);
@@ -390,6 +401,7 @@ export default function SettingsPage({ userId, userEmail, initialName, onProfile
         defaultZoom,
         chartMaxBars,
         updateHorizon,
+        priceCurrency,
         tradeSignals,
         securityWarnings,
         dailySummary,
@@ -589,6 +601,32 @@ export default function SettingsPage({ userId, userEmail, initialName, onProfile
                     ]}
                   />
                   <span className="st-settings-hint">Choose the visual tone used across SLTP.</span>
+                </div>
+
+                <div className="st-settings-field">
+                  <label className="st-settings-label">Converted price currency</label>
+                  <Select
+                    value={priceCurrency}
+                    onChange={(val) =>
+                      setPriceCurrency(
+                        isCurrencyChoice(String(val))
+                          ? (String(val).toUpperCase() as CurrencyChoice)
+                          : 'auto',
+                      )
+                    }
+                    options={[
+                      { label: currencyChoiceLabel('auto'), value: 'auto' },
+                      ...CURRENCY_CODES.map((code) => ({
+                        label: `${code} — ${currencyName(code)}`,
+                        value: code,
+                      })),
+                    ]}
+                  />
+                  <span className="st-settings-hint">
+                    A foreign listing opens in the currency its own exchange quotes, next to the
+                    venue it trades on. This is what the “Show in my currency” button on that
+                    quote converts to. It is read from your region until you pick a code here.
+                  </span>
                 </div>
 
                 <div className="st-settings-field">

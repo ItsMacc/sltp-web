@@ -25,11 +25,20 @@ import './ResearchPage.css'
 import {
   chartMaxBarsToNumber,
   readChartMaxBars,
+  readPriceCurrency,
   readStrategyChartStyle,
   type ResearchTimeframe,
   type StrategyChartStyle,
 } from '../../lib/settings'
 import {
+  convertBars,
+  currencySymbol,
+  formatMoney,
+  formatNumber,
+  resolveCurrency,
+} from '../../lib/currency'
+import {
+  getFxTable,
   getTickerDirectory,
   IS_MOBILE,
   queryMarketDataProgressively,
@@ -37,6 +46,7 @@ import {
   type Quote,
   type TickerInfo,
 } from '../store'
+import type { FxTable } from '../store/parquet'
 import { DATA_PLAN_YEARS } from '../store/device'
 
 // Phones hold the recent pair of chunks, not 28 years: their longest view is
@@ -302,6 +312,11 @@ export default function ResearchPage({ initialSettings, initialStrategyId }: Res
   )
 
   const [stockData, setStockData] = useState<StockHistory | null>(null)
+  // A foreign listing opens in its own currency; this is the reader asking to
+  // see the same quote in theirs. Reset whenever the symbol changes, so one
+  // converted chart never makes the next ticker look converted too.
+  const [showConverted, setShowConverted] = useState(false)
+  const [fx, setFx] = useState<FxTable | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   // Bumped by "Try again" so the fetch effect runs again for the same ticker.
@@ -557,8 +572,47 @@ export default function ResearchPage({ initialSettings, initialStrategyId }: Res
   }, [mode])
 
   const bars = stockData?.data ?? NO_BARS
-  const lastBar = bars.length > 0 ? bars[bars.length - 1] : null
-  const firstBar = bars.length > 0 ? bars[0] : null
+
+  // -------- Currency --------
+  // The catalogue knows the venue and the quote currency of every listing.
+  // "My currency" is the Settings choice, or the region when it is on auto.
+  const tickerInfo = useMemo(
+    () => allTickers.find((item) => item.ticker === selectedTicker) ?? null,
+    [allTickers, selectedTicker],
+  )
+  const localCurrency = tickerInfo?.currency || 'USD'
+  const myCurrency = resolveCurrency(readPriceCurrency(initialSettings))
+  const foreign = (tickerInfo?.universe ?? 'US') !== 'US'
+  const converting = showConverted && foreign && localCurrency !== myCurrency
+
+  useEffect(() => {
+    setShowConverted(false)
+  }, [selectedTicker])
+
+  useEffect(() => {
+    if (!converting || fx) return
+    let cancelled = false
+    getFxTable()
+      .then((table) => {
+        if (!cancelled) setFx(table)
+      })
+      .catch(() => {
+        // No FX table means the quote stays in its own currency; a silent
+        // fallback beats an error card over a chart that did load.
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [converting, fx])
+
+  const shownCurrency = converting && fx ? myCurrency : localCurrency
+  const displayBars = useMemo(
+    () => (converting && fx ? convertBars(bars, localCurrency, myCurrency, fx) : bars),
+    [bars, converting, fx, localCurrency, myCurrency],
+  )
+
+  const lastBar = displayBars.length > 0 ? displayBars[displayBars.length - 1] : null
+  const firstBar = displayBars.length > 0 ? displayBars[0] : null
   // The percentage only. The dollar difference between the first and last bar is
   // not a real gain or loss for a fund that split inside the range: every price
   // before the split has been restated, so the two ends are not comparable dollars.
@@ -566,12 +620,11 @@ export default function ResearchPage({ initialSettings, initialStrategyId }: Res
     firstBar && lastBar && firstBar.close !== 0
       ? ((lastBar.close - firstBar.close) / firstBar.close) * 100
       : 0
-  const stats = useMemo(() => computeStats(bars), [bars])
+  const stats = useMemo(() => computeStats(displayBars), [displayBars])
 
-  // The chart gets every bar in the timeframe. It keeps its own zoom and pan state,
-  // and the identity here only changes when a new response lands, which is what tells
-  // it to snap back to the newest bar.
-  const chartBars = bars
+  // The chart gets every bar in the timeframe, in the currency the header is
+  // showing, so the axis and the quote cannot disagree.
+  const chartBars = displayBars
 
   const searching = debouncedQuery.trim().length > 0
   const quoteName =
@@ -742,17 +795,42 @@ export default function ResearchPage({ initialSettings, initialStrategyId }: Res
                       <div className="quote-naming">
                         <h2 className="quote-symbol">{stockData?.ticker ?? selectedTicker}</h2>
                         {quoteName && <span className="quote-name">{quoteName}</span>}
+                        {tickerInfo && (
+                          <span className="quote-venue">
+                            {[tickerInfo.exchange, tickerInfo.country || tickerInfo.market]
+                              .filter(Boolean)
+                              .join(' \u00b7 ')}
+                          </span>
+                        )}
                       </div>
                       <p className="quote-price-row">
-                        <span className="quote-price">${priceText(lastBar.close)}</span>
+                        <span className="quote-price">
+                          {formatMoney(lastBar.close, shownCurrency)}
+                        </span>
                         <span className={`quote-change ${rangePct >= 0 ? 'is-up' : 'is-down'}`}>
                           {signedText(rangePct)}%
                         </span>
                         <span className="quote-span">over {TIMEFRAME_LABEL[timeframe]}</span>
                       </p>
+                      {converting && fx && (
+                        <p className="quote-conversion-note">
+                          Converted from {localCurrency} at the day&apos;s rate. The chart moves with it.
+                        </p>
+                      )}
                     </div>
 
                     <div className="quote-controls">
+                      {foreign && localCurrency !== myCurrency && (
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm quote-currency-toggle"
+                          onClick={() => setShowConverted((value) => !value)}
+                        >
+                          {showConverted
+                            ? `Show in ${currencySymbol(localCurrency)} ${localCurrency}`
+                            : `Show in ${currencySymbol(myCurrency)} ${myCurrency}`}
+                        </button>
+                      )}
                       <Segmented
                         options={STYLE_OPTIONS}
                         value={chartStyle}
@@ -770,11 +848,13 @@ export default function ResearchPage({ initialSettings, initialStrategyId }: Res
                   </header>
 
                   <p className="quote-ohlc">
-                    <span className="quote-date">{dateText(lastBar.date)}</span>
-                    <span><span className="quote-ohlc-label">Open</span> <b>{priceText(lastBar.open)}</b></span>
-                    <span><span className="quote-ohlc-label">High</span> <b>{priceText(lastBar.high)}</b></span>
-                    <span><span className="quote-ohlc-label">Low</span> <b>{priceText(lastBar.low)}</b></span>
-                    <span><span className="quote-ohlc-label">Close</span> <b>{priceText(lastBar.close)}</b></span>
+                    <span className="quote-date">
+                      {dateText(lastBar.date)} {'\u00b7'} {shownCurrency}
+                    </span>
+                    <span><span className="quote-ohlc-label">Open</span> <b>{formatNumber(lastBar.open, shownCurrency)}</b></span>
+                    <span><span className="quote-ohlc-label">High</span> <b>{formatNumber(lastBar.high, shownCurrency)}</b></span>
+                    <span><span className="quote-ohlc-label">Low</span> <b>{formatNumber(lastBar.low, shownCurrency)}</b></span>
+                    <span><span className="quote-ohlc-label">Close</span> <b>{formatNumber(lastBar.close, shownCurrency)}</b></span>
                     <span><span className="quote-ohlc-label">Volume</span> <b>{compactVolume(lastBar.volume)}</b></span>
                   </p>
 
@@ -805,12 +885,12 @@ export default function ResearchPage({ initialSettings, initialStrategyId }: Res
                       </div>
                       <div className="quote-stat">
                         <span className="quote-stat-label">High</span>
-                        <span className="quote-stat-value">{priceText(stats.high)}</span>
+                        <span className="quote-stat-value">{formatMoney(stats.high, shownCurrency)}</span>
                         <span className="quote-stat-note">Highest price</span>
                       </div>
                       <div className="quote-stat">
                         <span className="quote-stat-label">Low</span>
-                        <span className="quote-stat-value">{priceText(stats.low)}</span>
+                        <span className="quote-stat-value">{formatMoney(stats.low, shownCurrency)}</span>
                         <span className="quote-stat-note">Lowest price</span>
                       </div>
                       <div className="quote-stat">

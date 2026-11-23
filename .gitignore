@@ -34,3 +34,6 @@ backend/scripts/artifacts/
 
 # Vite dependency cache
 frontend/.vite/
+
+# scripts
+scripts/*
