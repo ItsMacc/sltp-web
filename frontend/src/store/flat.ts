@@ -4,11 +4,20 @@
 //   sym u16, date u16, open/high/low/close/vol f32.
 // The header carries the symbol table, per-symbol starts/counts and the
 // payload offsets, so a single-symbol chart reads only that symbol's run.
+//
+// The reads are ranged on purpose. A bundle is 50–210MB, and handing the whole
+// of one to arrayBuffer() — what this file used to do — costs a 200MB
+// allocation and hundreds of milliseconds per era (measured 414ms on the
+// 177MB 2018-2022 US block). The header says where a symbol's bars sit, so
+// two or three small Blob slices (149KB for a 1,259-bar AAPL run, 17ms) give
+// the same rows. On a phone the difference is the whole chart: the old path
+// allocated past what iOS Safari will hand a tab.
 
 import type { QueryPerf, WorkerQuote, WorkerRow } from './parquet';
 
 const MAGIC = 'SLTPFLAT';
 const DAY_MS = 86_400_000;
+const PREAMBLE = 24;
 
 interface FlatHeader {
   symbols: string[];
@@ -33,33 +42,55 @@ interface ParsedFlat {
   rows: number;
 }
 
+/** Headers parsed this session, so a range switch does not re-read one. */
+const headerCache = new WeakMap<Blob, Promise<ParsedFlat>>();
+
 function dayToISO(day: number): string {
   return new Date(day * DAY_MS).toISOString().slice(0, 10);
 }
 
-function parseFlat(buffer: ArrayBuffer): ParsedFlat {
-  if (buffer.byteLength < 24) throw new Error('Flat bundle is missing its preamble');
-  const view = new DataView(buffer);
-  const magic = new TextDecoder().decode(new Uint8Array(buffer, 0, 8));
-  if (magic !== MAGIC) throw new Error(`Not a flat bundle: ${magic}`);
-  if (view.getUint32(8, true) !== 1) throw new Error('Unsupported flat bundle format');
-  const headerLen = view.getUint32(12, true);
-  const rows = view.getUint32(16, true) + view.getUint32(20, true) * 0x1_0000_0000;
-  const header = JSON.parse(
-    new TextDecoder().decode(new Uint8Array(buffer, 24, headerLen)),
-  ) as FlatHeader;
-  if (!Array.isArray(header.symbols) || header.starts.length !== header.symbols.length) {
-    throw new Error('Flat bundle header is malformed');
-  }
-  return { header, payload: 24 + headerLen, rows };
+async function parseFlat(file: Blob): Promise<ParsedFlat> {
+  const cached = headerCache.get(file);
+  if (cached) return cached;
+  const run = (async (): Promise<ParsedFlat> => {
+    if (file.size < PREAMBLE) throw new Error('Flat bundle is missing its preamble');
+    const preamble = await file.slice(0, PREAMBLE).arrayBuffer();
+    const view = new DataView(preamble);
+    const magic = new TextDecoder().decode(new Uint8Array(preamble, 0, 8));
+    if (magic !== MAGIC) throw new Error(`Not a flat bundle: ${magic}`);
+    if (view.getUint32(8, true) !== 1) throw new Error('Unsupported flat bundle format');
+    const headerLen = view.getUint32(12, true);
+    // The row count is a u64 across the last two preamble fields.
+    const rows = view.getUint32(16, true) + view.getUint32(20, true) * 0x1_0000_0000;
+    // A header cut short means the file is truncated: fail here rather than
+    // reading a symbol's run out of bytes that are not on disk.
+    if (PREAMBLE + headerLen > file.size) throw new Error('Flat bundle header is truncated');
+    const header = JSON.parse(
+      new TextDecoder().decode(
+        await file.slice(PREAMBLE, PREAMBLE + headerLen).arrayBuffer(),
+      ),
+    ) as FlatHeader;
+    if (!Array.isArray(header.symbols) || header.starts.length !== header.symbols.length) {
+      throw new Error('Flat bundle header is malformed');
+    }
+    return { header, payload: PREAMBLE + headerLen, rows };
+  })();
+  headerCache.set(file, run);
+  // A failed parse must not stay cached: the next retry re-reads the file.
+  run.catch(() => headerCache.delete(file));
+  return run;
 }
 
-function f32(buffer: ArrayBuffer, offset: number, count: number): Float32Array {
-  return new Float32Array(buffer.slice(offset, offset + count * 4));
-}
-
-function u16(buffer: ArrayBuffer, offset: number, count: number): Uint16Array {
-  return new Uint16Array(buffer.slice(offset, offset + count * 2));
+/** One column's run for `count` rows starting at the symbol's first row. */
+async function readRun(
+  file: Blob,
+  at: number,
+  count: number,
+  Ctor: typeof Uint16Array | typeof Float32Array,
+): Promise<Uint16Array | Float32Array> {
+  const bytes = Ctor.BYTES_PER_ELEMENT;
+  const buffer = await file.slice(at, at + count * bytes).arrayBuffer();
+  return new Ctor(buffer);
 }
 
 /** True when the file's first eight bytes are the flat magic. */
@@ -75,8 +106,7 @@ export async function readFlatBars(
   symbol: string,
 ): Promise<{ rows: WorkerRow[]; perf: QueryPerf }> {
   const t0 = performance.now();
-  const buffer = await file.arrayBuffer();
-  const { header, payload } = parseFlat(buffer);
+  const { header, payload } = await parseFlat(file);
   const footerMs = performance.now() - t0;
   const perf: QueryPerf = {
     fileBytes: file.size,
@@ -91,22 +121,25 @@ export async function readFlatBars(
   if (count <= 0) return { rows: [], perf };
 
   const t1 = performance.now();
-  const dates = u16(buffer, payload + header.offsets.date + start * 2, count);
-  const opens = f32(buffer, payload + header.offsets.open + start * 4, count);
-  const highs = f32(buffer, payload + header.offsets.high + start * 4, count);
-  const lows = f32(buffer, payload + header.offsets.low + start * 4, count);
-  const closes = f32(buffer, payload + header.offsets.close + start * 4, count);
-  const volumes = f32(buffer, payload + header.offsets.vol + start * 4, count);
-  const out: WorkerRow[] = [];
+  const offsets = header.offsets;
+  const [dates, opens, highs, lows, closes, volumes] = await Promise.all([
+    readRun(file, payload + offsets.date + start * 2, count, Uint16Array),
+    readRun(file, payload + offsets.open + start * 4, count, Float32Array),
+    readRun(file, payload + offsets.high + start * 4, count, Float32Array),
+    readRun(file, payload + offsets.low + start * 4, count, Float32Array),
+    readRun(file, payload + offsets.close + start * 4, count, Float32Array),
+    readRun(file, payload + offsets.vol + start * 4, count, Float32Array),
+  ]);
+  const out: WorkerRow[] = new Array(count);
   for (let i = 0; i < count; i += 1) {
-    out.push({
-      date: dayToISO(dates[i]!),
-      open: opens[i]!,
-      high: highs[i]!,
-      low: lows[i]!,
-      close: closes[i]!,
-      volume: volumes[i]!,
-    });
+    out[i] = {
+      date: dayToISO((dates as Uint16Array)[i]!),
+      open: (opens as Float32Array)[i]!,
+      high: (highs as Float32Array)[i]!,
+      low: (lows as Float32Array)[i]!,
+      close: (closes as Float32Array)[i]!,
+      volume: (volumes as Float32Array)[i]!,
+    };
   }
   perf.parseMs = Math.round(performance.now() - t1);
   perf.rowsScanned = out.length;
@@ -122,35 +155,43 @@ export async function readFlatQuotes(
   const perf: QueryPerf = { fileBytes: file.size, footerMs: 0, parseMs: 0, rowsScanned: 0 };
   if (symbols.length === 0) return { quotes: out, perf };
   const t0 = performance.now();
-  const buffer = await file.arrayBuffer();
-  const { header, payload, rows } = parseFlat(buffer);
+  const { header, payload } = await parseFlat(file);
   perf.footerMs = Math.round(performance.now() - t0);
+
+  // Only the last two rows of each wanted symbol are needed, so the read is
+  // two sessions per symbol instead of the whole date and close columns
+  // (which cost ~85MB of a 210MB file before this was ranged).
   const t1 = performance.now();
-  const dates = u16(buffer, payload + header.offsets.date, rows);
-  const closes = f32(buffer, payload + header.offsets.close, rows);
-  const wanted = new Set(symbols);
-  for (let index = 0; index < header.symbols.length; index += 1) {
-    const symbol = header.symbols[index]!;
-    if (!wanted.has(symbol)) continue;
-    const count = header.counts[index]!;
-    if (count <= 0) continue;
-    const at = header.starts[index]! + count - 1;
-    const lastDay = dates[at]!;
-    const lastClose = closes[at]!;
-    const prevAt = at - 1;
-    const hasPrev = count >= 2;
-    const prevDay = hasPrev ? dates[prevAt]! : null;
-    const prevClose = hasPrev ? closes[prevAt]! : null;
-    out[symbol] = {
-      price: lastClose,
-      changePct:
-        prevClose != null && prevClose !== 0 ? ((lastClose - prevClose) / prevClose) * 100 : 0,
-      lastDate: dayToISO(lastDay),
-      prevDate: prevDay != null ? dayToISO(prevDay) : null,
-      prevClose,
-    };
-    perf.rowsScanned += Math.min(count, 2);
-  }
+  const offsets = header.offsets;
+  const index = new Map(header.symbols.map((symbol, position) => [symbol, position]));
+  await Promise.all(
+    symbols.map(async (symbol) => {
+      const position = index.get(symbol);
+      if (position === undefined) return;
+      const count = header.counts[position]!;
+      if (count <= 0) return;
+      const take = Math.min(count, 2);
+      const first = header.starts[position]! + count - take;
+      const [dates, closes] = await Promise.all([
+        readRun(file, payload + offsets.date + first * 2, take, Uint16Array),
+        readRun(file, payload + offsets.close + first * 4, take, Float32Array),
+      ]);
+      const dayCodes = dates as Uint16Array;
+      const prices = closes as Float32Array;
+      const lastAt = take - 1;
+      out[symbol] = {
+        price: prices[lastAt]!,
+        changePct:
+          take >= 2 && prices[0] !== 0
+            ? ((prices[lastAt]! - prices[0]!) / prices[0]!) * 100
+            : 0,
+        lastDate: dayToISO(dayCodes[lastAt]!),
+        prevDate: take >= 2 ? dayToISO(dayCodes[0]!) : null,
+        prevClose: take >= 2 ? prices[0]! : null,
+      };
+      perf.rowsScanned += take;
+    }),
+  );
   perf.parseMs = Math.round(performance.now() - t1);
   return { quotes: out, perf };
 }

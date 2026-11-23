@@ -672,12 +672,26 @@ async function fetchFiles(files: ManifestFile[]): Promise<void> {
 /**
  * Fetches one file on demand (a chart asked for a range whose chunk never
  * downloaded). Resolves when the bytes are in OPFS.
+ *
+ * Presence is not enough. A write the browser abandoned halfway leaves the
+ * file at 0 bytes (or short of the manifest's count) and a `.crswap` beside
+ * it, and answering "the file is there" from that poisoned a phone's cache:
+ * every chart failed until a sign-in happened to re-run the byte-count
+ * reconciliation. The manifest's size is the only proof the file is whole, so
+ * a mismatch deletes it and downloads it again.
  */
 export async function ensureFile(key: string): Promise<void> {
-  if (await hasFile(key)) return;
   const manifest = await ensureManifest();
   const entry = manifest.files.find((f) => f.key === key);
-  if (!entry) throw new Error(`Unknown market file: ${key}`);
+  const onDisk = await fileSize(key);
+  if (entry && onDisk === entry.bytes) return;
+  if (onDisk !== null && entry) await deleteFile(key);
+  if (!entry) {
+    // A key the manifest does not name is not ours to fetch; if bytes exist
+    // for it they are from an older layout, which the sweep removes.
+    if (onDisk !== null) return;
+    throw new Error(`Unknown market file: ${key}`);
+  }
   countBytes(entry);
   // Sidecars (catalog, actions) share this path but are not history files;
   // only plan keys may move the "N of M" count.
@@ -718,6 +732,7 @@ async function runBoot(): Promise<void> {
   if (supported) {
     await deleteFile('__version.txt');
     await sweepLegacyLayout();
+    await sweepInterruptedWrites();
   }
   const stored = supported ? await readVersion() : null;
   const planList = planKeys(manifest.files);
@@ -1012,6 +1027,19 @@ async function sweepLegacyLayout(): Promise<void> {
   } catch {
     // Without the marker the sweep simply runs again on the next boot.
   }
+}
+
+/** The cache directory, one level up from the per-market bundle folders. */
+async function sweepInterruptedWrites(): Promise<void> {
+  // A write the browser abandoned (tab closed, disk full, iOS killing the
+  // page mid-stream) leaves `<name>.crswap` behind, and those files are as
+  // large as the bundle they were writing — 166MB of the quota spent on
+  // nothing. The file they belonged to is either absent or the wrong size,
+  // which the reconciliation below already re-downloads, so the swap files
+  // are safe to delete. Only done at boot, when nothing is in flight.
+  const onDisk = await listFiles('MARKET_DATA/DAILY').catch(() => []);
+  const swaps = onDisk.filter((name) => name.endsWith('.crswap'));
+  await Promise.all(swaps.map((name) => deleteFile(`${DAILY_PREFIX}${name}`)));
 }
 
 /** The cached parquet bytes for one chunk (fetches first on a miss). */

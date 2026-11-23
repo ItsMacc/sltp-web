@@ -62,6 +62,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))  # sibling r2.py / flat
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # app.notify
 
 from app.notify.mailer import admin_recipient, ops_failure_email
+from delist import review_and_strip
 from flat_bundle import COLUMNS, build_flat_bundle, read_flat_bytes
 from r2 import s3 as _s3
 
@@ -78,6 +79,9 @@ VERSION_KEY = "META/version.txt"
 BLOCK_START = 1998
 BLOCK_YEARS = 5
 BATCH = 400  # server peak-RAM rule: never one call with >500 tickers
+# Set by --delist-review: the nightly bars still publish, but a delisting is
+# only reported (verdicts, rows it would remove), never written.
+DELIST_DRY_RUN = "--delist-review" in sys.argv
 
 
 def _code_to_date(code: int) -> str:
@@ -351,11 +355,17 @@ def _publish(manifest: dict, version: str) -> None:
 
 # -------- Download --------
 def _download(catalog: pd.DataFrame, market: str, start: str, end: str,
-              names: dict[str, str]) -> tuple[list[pd.DataFrame], list[pd.DataFrame]]:
-    """New bars and corporate actions for one market's active symbols."""
+              names: dict[str, str]) -> tuple[list[pd.DataFrame], list[pd.DataFrame], set[str]]:
+    """New bars and corporate actions for one market's active symbols.
+
+    The third return is the symbols Yahoo actually answered with bars for.
+    Anything that asked for data and got none is a suspect, and the delisting
+    pass verifies each one before any of its history is touched.
+    """
     symbols = list(names)
     frames: list[pd.DataFrame] = []
     action_frames: list[pd.DataFrame] = []
+    seen: set[str] = set()
     for offset in range(0, len(symbols), BATCH):
         chunk = symbols[offset:offset + BATCH]
         # Several catalog spellings can share one Yahoo download (BRK.B and
@@ -391,6 +401,7 @@ def _download(catalog: pd.DataFrame, market: str, start: str, end: str,
                 frame = bars.copy()
                 frame["Symbol"] = symbol
                 frames.append(frame[COLUMNS])
+                seen.add(symbol)
             # Payouts ride in the same download (actions=True above): ex-date
             # cash (Kind 1) and split ratios (Kind 0).
             for kind, column in ((1, "Dividends"), (0, "Stock Splits")):
@@ -407,11 +418,14 @@ def _download(catalog: pd.DataFrame, market: str, start: str, end: str,
                     }))
         batch = offset // BATCH + 1
         total = (len(symbols) + BATCH - 1) // BATCH
-        print(f"  {market} batch {batch}/{total}: {len(frames)} blocks", flush=True)
-    return frames, action_frames
+        unanswered = len(chunk) - sum(1 for symbol in chunk if symbol in seen)
+        print(f"  {market} batch {batch}/{total}: {len(frames)} blocks, "
+              f"{unanswered} symbol(s) with no bars", flush=True)
+    return frames, action_frames, seen
 
 
-def update_market(manifest: dict, catalog: pd.DataFrame, market: str) -> bool:
+def update_market(manifest: dict, catalog: pd.DataFrame, market: str,
+                  unanswered_out: dict[str, list[str]] | None = None) -> bool:
     """One market's nightly upsert. Returns True when it wrote new bars."""
     old_last, tail_key = _last_session(manifest, market)
     tail_key = tail_key or _tail_key(market)
@@ -431,7 +445,12 @@ def update_market(manifest: dict, catalog: pd.DataFrame, market: str) -> bool:
     start = (date.fromisoformat(old_last) - timedelta(days=4)).isoformat()
     end = (date.today() + timedelta(days=1)).isoformat()
     print(f"{market}: {len(symbols)} symbols, window {start} -> {end}", flush=True)
-    frames, action_frames = _download(catalog, market, start, end, yahoo)
+    frames, action_frames, seen = _download(catalog, market, start, end, yahoo)
+    if unanswered_out is not None:
+        # A halted name also misses a short window, so this is a list of
+        # suspects, not verdicts: delist.review asks about each one and only a
+        # confirmed answer, after a grace period, removes anything.
+        unanswered_out[market] = sorted(set(symbols) - seen)
     if not frames:
         print(f"{market}: no new bars — R2 already current.", flush=True)
         return False
@@ -507,31 +526,47 @@ def main() -> int:
 
     wrote = False
     newest: list[str] = []
+    # Symbols Yahoo answered nothing for, per market. The delisting pass below
+    # treats each as a suspect and verifies it before any history is touched.
+    unanswered: dict[str, list[str]] = {}
     for market in MARKETS:
-        if update_market(manifest, catalog, market):
+        if update_market(manifest, catalog, market, unanswered):
             wrote = True
         newest.append(_last_session(manifest, market)[0])
 
-    if not wrote:
+    text = str(manifest.get("version") or "")
+    if wrote:
+        version = max(max(newest), str(manifest.get("version", "")))
+        _publish(manifest, version)
+        # Prove the two writes a browser actually reads.
+        verify = json.loads(_s3("GET", MANIFEST_KEY).decode())
+        text = _s3("GET", VERSION_KEY).decode().strip()
+        assert verify["version"] == version == text, (verify["version"], text)
+        for market in MARKETS:
+            entry = _entry(verify, _tail_key(market))
+            if entry is not None:
+                print(f"Done: {market} tail {entry['first_session']} -> "
+                      f"{entry['last_session']}, {entry['rows']} rows, {entry['bytes']} bytes")
+        print(f"Done: version {text}, {len(verify['files'])} manifest entries.")
+    else:
         print("nothing written; the manifest already carries tonight's sessions.")
-        if fold_error:
-            raise RuntimeError(fold_error)
-        return 0
 
-    version = max(max(newest), str(manifest.get("version", "")))
-    _publish(manifest, version)
-    # Prove the two writes a browser actually reads.
-    verify = json.loads(_s3("GET", MANIFEST_KEY).decode())
-    text = _s3("GET", VERSION_KEY).decode().strip()
-    assert verify["version"] == version == text, (verify["version"], text)
-    for market in MARKETS:
-        entry = _entry(verify, _tail_key(market))
-        if entry is not None:
-            print(f"Done: {market} tail {entry['first_session']} -> "
-                  f"{entry['last_session']}, {entry['rows']} rows, {entry['bytes']} bytes")
-    print(f"Done: version {text}, {len(verify['files'])} manifest entries.")
+    # The night's bars land first, so a delisting that fails cannot cost the
+    # data: the review reads what was just published and only removes symbols
+    # that are confirmed and past their grace period.
+    delist_error: str | None = None
+    try:
+        removed = review_and_strip(catalog, unanswered, dry_run=DELIST_DRY_RUN)
+        if removed:
+            print(f"Done: {removed} rows removed for delisted symbols.")
+    except Exception as exc:  # noqa: BLE001 - reported at the end, after the data
+        delist_error = f"delisting review failed: {exc}"
+        print(delist_error, flush=True)
+
     if fold_error:
         raise RuntimeError(fold_error)
+    if delist_error:
+        raise RuntimeError(delist_error)
     return 0
 
 
@@ -558,6 +593,15 @@ if __name__ == "__main__":
             tolerance = int(sys.argv[pos + 1])
         try:
             sys.exit(check_fresh(tolerance))
+        except Exception:
+            _alert_admin()
+            raise
+    if "--strip-delisted" in sys.argv:
+        # Clear a backlog without another download: the archive already holds
+        # the verdicts, so this is just the removal they are owed.
+        from delist import strip_due
+        try:
+            sys.exit(strip_due(dry_run=DELIST_DRY_RUN))
         except Exception:
             _alert_admin()
             raise

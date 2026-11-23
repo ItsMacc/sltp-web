@@ -185,6 +185,28 @@ def fetch_market_status() -> dict[str, Any] | None:
         "bundles": len(bundles),
         "markets": markets,
         "latest": max((str(entry.get("last_session") or "") for entry in bundles), default=""),
+        "delisted": fetch_delisted_archive(),
+    }
+
+
+# The delisted archive is a sibling object in the same public bucket, so the
+# brief answers "what stopped trading" with what the archive says rather than
+# with a local file a scheduled runner would not have.
+def fetch_delisted_archive() -> dict[str, Any] | None:
+    try:
+        response = requests.get(f"{DATA_URL}/META/delisted.json", timeout=SUPABASE_TIMEOUT)
+        response.raise_for_status()
+        body = response.json()
+    except (requests.RequestException, ValueError):
+        return None
+    symbols = body.get("symbols") or []
+    if not isinstance(symbols, list):
+        return None
+    return {
+        "total": len(symbols),
+        "stripped": sum(1 for entry in symbols if isinstance(entry, dict) and entry.get("stripped")),
+        "pending": sum(1 for entry in symbols if isinstance(entry, dict) and not entry.get("stripped")),
+        "renamed": sum(1 for entry in symbols if isinstance(entry, dict) and entry.get("replacement")),
     }
 
 
@@ -251,6 +273,15 @@ def format_text(report: dict[str, Any]) -> str:
             f"  bundles:         {market.get('bundles')}",
             f"  markets:         {', '.join(market.get('markets') or []) or 'none'}",
         ]
+        delisted = market.get("delisted")
+        if not isinstance(delisted, dict):
+            lines.append("  delisted:        archive unreachable")
+        else:
+            lines.append(
+                f"  delisted:        {delisted.get('total')} archived "
+                f"({delisted.get('stripped')} stripped, {delisted.get('pending')} pending, "
+                f"{delisted.get('renamed')} renamed)"
+            )
     followed = report.get("followed_strategies") or []
     if followed:
         lines += ["", "Followed strategies"]

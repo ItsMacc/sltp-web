@@ -136,10 +136,13 @@ First data call downloads the needed year files from R2 into `~/.sltp/cache`. La
 ../.venv/bin/python scripts/operator_report.py --send       # mail it to the operator
 ../.venv/bin/python scripts/daily_r2_update.py              # nightly R2 tail top-up (cron)
 ../.venv/bin/python scripts/daily_r2_update.py --fold-year 2026  # yearly: fold the tail's old year into its year file
+../.venv/bin/python scripts/daily_r2_update.py --delist-review   # tonight's delisting verdicts, nothing written
+../.venv/bin/python scripts/daily_r2_update.py --strip-delisted  # strip what the archive already holds a verdict for
+../.venv/bin/python scripts/delist.py --report                # print META/delisted.json
 ../.venv/bin/python scripts/r2_usage.py                     # this month's Class A/B op counts
 ```
 
-`scripts/r2.py` is shared plumbing the jobs import (repo-root `.env`, SigV4-signed R2 transport) — not a job itself. The nightly updater mails the operator through `backend/app/notify/mailer.py` if it crashes; that file is the only place in the codebase that sends mail. Two one-off repairs live alongside the jobs until they have run once against working R2 keys, then get deleted: `backfill_missing_once.py` (bars pass, then `--actions-only` payouts pass) and `restamp_manifest.py`.
+`scripts/delist.py` is the delisting pass the night runs and the operator can run by hand: a symbol Yahoo stops answering for is a suspect, FinanceDatabase is the second opinion, and a confirmed symbol past its grace period has its bars removed from every bundle (each manifest entry restamped from the bytes actually written) and its record archived in `META/delisted.json`. Both markets share that one object. `scripts/r2.py` is shared plumbing the jobs import (repo-root `.env`, SigV4-signed R2 transport) — not a job itself. The nightly updater mails the operator through `backend/app/notify/mailer.py` if it crashes; that file is the only place in the codebase that sends mail. Two one-off repairs live alongside the jobs until they have run once against working R2 keys, then get deleted: `backfill_missing_once.py` (bars pass, then `--actions-only` payouts pass) and `restamp_manifest.py`.
 
 ## Tech stack
 
@@ -155,7 +158,7 @@ First data call downloads the needed year files from R2 into `~/.sltp/cache`. La
 
 A `Strategy` overrides `initialize_universe`, `on_signal`, `on_rebalance`, `should_exit` and `run_daily`, and exposes `_sma`, `_ema`, `_rsi`, `_macd`, `_atr`, `_adx` and the rest of the indicator set, plus exit helpers such as `_time_stop_days`, `_trailing_stop` and `_atr_stop`. Constraints are class attributes: `MAX_POSITIONS`, `MAX_LOTS_PER_TICKER`, `MAX_ALLOCATION_PER_TICKER`, `REBALANCE_FREQUENCY`, `MIN_BARS_REQUIRED`, `LIQUIDATE_ON_END`. Because a strategy's warmup can push its start date past the one you asked for, the engine probes forward up to 1,826 calendar days before it gives up.
 
-**Market data.** The `sltp` package serves daily bars from 1998 over US listings, fetched one file per calendar year from R2 into `~/.sltp/cache` (plus a small recent tail) and reloaded when the files change, so a long-running API picks up fresh bars without a restart. The tradable directory keeps symbols that later stopped trading, so a backtest does not quietly pick today's survivors.
+**Market data.** The `sltp` package serves daily bars from 1998 over US listings, fetched one file per calendar year from R2 into `~/.sltp/cache` (plus a small recent tail) and reloaded when the files change, so a long-running API picks up fresh bars without a restart. A symbol that stops trading is verified against FinanceDatabase, archived in `META/delisted.json` and stripped from the bundles, so no run trades a dead listing — which also means a run only sees the companies that survived, and its results lean slightly optimistic. The data guide says so where readers look, and so does the Lab.
 
 **API and auth.** FastAPI with routers for users, portfolios, the Lab, API keys and account deletion. Protected routes depend on `get_current_user`, which verifies the Supabase session token against the project's JWKS endpoint (ES256) and falls back to the legacy HS256 secret. Every query is scoped by the user id from that token, never the request body.
 

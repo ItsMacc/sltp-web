@@ -703,6 +703,14 @@ export default function LabPage({ onNavigate }: LabPageProps) {
             and your target, the stop is the one taken. If the price gaps through a level, the
             fill is at the open, which can be worse than the level you set.
           </p>
+
+          <p className="lab-engine-note">
+            <strong>The universe is the listings that still exist.</strong> A ticker that stops
+            trading is confirmed, then archived out of the data, so no run trades it. That leaves
+            backtests slightly prone to survivorship bias, since the companies that failed are not
+            in the sample. Read a result as an optimistic case for the idea, not a replay of every
+            stock that was listed at the time.
+          </p>
         </section>
 
         <section className="lab-section" aria-labelledby="lab-results">

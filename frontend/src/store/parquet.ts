@@ -93,7 +93,11 @@ const CATALOG_COLUMNS = [
   'Country',
   'Exchange',
   'CurrencyCode',
+  'Status',
 ];
+/** Catalog rows the pipeline has archived: their bars are gone from the bundles,
+    so offering one in search could only produce an empty chart. */
+const ARCHIVED_STATUS = 'delisted';
 
 let initPromise: Promise<void> | null = null;
 
@@ -374,15 +378,26 @@ export async function readQuotes(
 export async function readCatalog(file: Blob): Promise<CatalogEntry[]> {
   await ensureInit();
   const bytes = new Uint8Array(await file.arrayBuffer());
-  const table = decodeGroups(bytes, CATALOG_COLUMNS);
+  let table: Table;
+  let hasStatus = true;
+  try {
+    table = decodeGroups(bytes, CATALOG_COLUMNS);
+  } catch {
+    // A catalog published before the status column existed: nothing in it is
+    // archived, so the directory is the whole file.
+    hasStatus = false;
+    table = decodeGroups(bytes, CATALOG_COLUMNS.filter((name) => name !== 'Status'));
+  }
   const decoder = new TextDecoder();
   const decode = (chunk: StringChunk, i: number): string => {
     const start = Number(chunk.offsets[i]);
     const end = Number(chunk.offsets[i + 1]);
     return decoder.decode(chunk.values.subarray(start, end)).trim();
   };
-  const columns = CATALOG_COLUMNS.map((name) => stringChunks(childVector(table, name)));
-  const [tickers, names, universes, markets, countries, exchanges, currencies] = columns;
+  const columns = CATALOG_COLUMNS.filter((name) => hasStatus || name !== 'Status').map((name) =>
+    stringChunks(childVector(table, name)),
+  );
+  const [tickers, names, universes, markets, countries, exchanges, currencies, statuses] = columns;
   const out: CatalogEntry[] = [];
   for (let c = 0; c < (tickers?.length ?? 0); c += 1) {
     const tick = tickers![c]!;
@@ -390,6 +405,7 @@ export async function readCatalog(file: Blob): Promise<CatalogEntry[]> {
       const ticker = decode(tick, i);
       const label = decode(names![c]!, i);
       if (!ticker || !label) continue;
+      if (hasStatus && decode(statuses![c]!, i).toLowerCase() === ARCHIVED_STATUS) continue;
       out.push({
         ticker,
         name: label,

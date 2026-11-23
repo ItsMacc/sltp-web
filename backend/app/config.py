@@ -35,7 +35,8 @@ TURSO_TOKEN: str | None = os.environ.get("TURSO_AUTH_TOKEN")
 TURSO_TIMEOUT: int = 15
 
 # The public bucket the site and sltp both read. The operator brief asks it for
-# the published manifest instead of counting reads through a Worker.
+# the published manifest and the delisted archive, so it reports what readers
+# actually get instead of counting reads anywhere.
 DATA_URL: str = os.environ.get("SLTP_DATA_URL", "https://data.sltp-app.com").rstrip("/")
 
 
