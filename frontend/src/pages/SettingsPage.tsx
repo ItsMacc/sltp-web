@@ -625,7 +625,9 @@ export default function SettingsPage({ userId, userEmail, initialName, onProfile
                   <span className="st-settings-hint">
                     A foreign listing opens in the currency its own exchange quotes, next to the
                     venue it trades on. This is what the “Show in my currency” button on that
-                    quote converts to. It is read from your region until you pick a code here.
+                    quote converts to. Until you pick a code here, it follows this browser's time
+                    zone and then its language; a currency our FX table does not quote shows in US
+                    dollars.
                   </span>
                 </div>
 

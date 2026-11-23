@@ -49,7 +49,6 @@ const COUNTRY_CURRENCY: Record<string, CurrencyCode> = {
   GB: 'GBP',
   CA: 'CAD',
   AU: 'AUD',
-  NZ: 'AUD',
   IN: 'INR',
   JP: 'JPY',
   DE: 'EUR',
@@ -69,7 +68,7 @@ const COUNTRY_CURRENCY: Record<string, CurrencyCode> = {
   HK: 'HKD',
 }
 
-/** Time-zone families, for a browser that reports no usable region. */
+/** Time-zone families: the location signal, checked before the locale. */
 const ZONE_CURRENCY: [RegExp, CurrencyCode][] = [
   [/^Asia\/(Kolkata|Calcutta)$/, 'INR'],
   [/^Asia\/(Tokyo|Osaka)$/, 'JPY'],
@@ -79,9 +78,16 @@ const ZONE_CURRENCY: [RegExp, CurrencyCode][] = [
   [/^Europe\/Zurich$/, 'CHF'],
   [/^Europe\/Stockholm$/, 'SEK'],
   [/^Australia\//, 'AUD'],
-  [/^America\/(Toronto|Vancouver|Edmonton|Winnipeg|Halifax|Regina)$/, 'CAD'],
   [
-    /^Europe\/(Berlin|Paris|Madrid|Rome|Amsterdam|Brussels|Vienna|Dublin|Lisbon|Helsinki|Athens|Bratislava|Ljubljana|Luxembourg|Riga|Tallinn|Vilnius|Malta|Monaco|Oslo[^/]*)$/,
+    /^America\/(Toronto|Montreal|Vancouver|Edmonton|Winnipeg|Regina|Halifax|Moncton|Glace_Bay|Goose_Bay|Thunder_Bay|Rainy_River|Whitehorse|Yellowknife|Iqaluit|St_Johns|Nipigon|Atikokan)$/,
+    'CAD',
+  ],
+  [
+    /^America\/(New_York|Chicago|Denver|Los_Angeles|Phoenix|Anchorage|Honolulu|Detroit|Boise|Juneau|Nome|Sitka|Adak|Indiana\/[A-Za-z_]+|Kentucky\/[A-Za-z_]+|North_Dakota\/[A-Za-z_]+|Puerto_Rico)$/,
+    'USD',
+  ],
+  [
+    /^Europe\/(Berlin|Paris|Madrid|Rome|Amsterdam|Brussels|Vienna|Dublin|Lisbon|Helsinki|Athens|Bratislava|Ljubljana|Luxembourg|Riga|Tallinn|Vilnius|Malta|Monaco|Andorra|San_Marino|Vatican|Podgorica|Zagreb)$/,
     'EUR',
   ],
 ]
@@ -89,10 +95,19 @@ const ZONE_CURRENCY: [RegExp, CurrencyCode][] = [
 /**
  * The currency this browser's owner most likely thinks in.
  *
- * The locale's region is the strongest signal (`en-IN`, `de-DE`), the time
- * zone is the fallback for a locale without one (`en-GB-u-hc-h12` still has
- * GB, but `C` does not), and dollars are the last resort. This never leaves
- * the machine: it is a reading of the browser, not a lookup of the person.
+ * Where the machine is beats how the person talks. A Mac whose region is set
+ * to India but whose clock runs in Toronto reports `en-IN` as its language and
+ * `America/Toronto` as its zone: the zone is the location, the locale is the
+ * language, so reading the locale first showed rupees to a reader in Canada.
+ *
+ * The locale's region is still the fallback for a machine whose zone we do not
+ * map. A region whose money the published FX table does not carry (Brazil,
+ * Norway, New Zealand…) reads in US dollars rather than in a neighbouring
+ * currency the reader does not use, and that is also the last resort when both
+ * signals are missing.
+ *
+ * This never leaves the machine: it is a reading of the browser, not a lookup
+ * of the person.
  */
 export function detectedCurrency(
   locale: string = typeof navigator === 'undefined' ? 'en-US' : navigator.language,
@@ -100,11 +115,11 @@ export function detectedCurrency(
     ? ''
     : Intl.DateTimeFormat().resolvedOptions().timeZone,
 ): CurrencyCode {
+  for (const [pattern, code] of ZONE_CURRENCY) {
+    if (timeZone && pattern.test(timeZone)) return code
+  }
   const region = /[-_]([A-Za-z]{2})(?:$|[-_])/.exec(locale)?.[1]?.toUpperCase()
   if (region && COUNTRY_CURRENCY[region]) return COUNTRY_CURRENCY[region]!
-  for (const [pattern, code] of ZONE_CURRENCY) {
-    if (pattern.test(timeZone)) return code
-  }
   return 'USD'
 }
 
