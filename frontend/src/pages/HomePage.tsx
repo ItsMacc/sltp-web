@@ -42,7 +42,7 @@ const TOOLS: ToolData[] = [
     // The site's dataset is the same wherever it is read, and this is the
     // pitch; what a given device keeps cached is stated on the page itself.
     description:
-      'Access daily price data and historical performance spanning across 11,000+ securities and nearly 3 decades of market history along with a backtest engine to see how our strategies have performed in the past.',
+      'Access daily price data and historical performance spanning across nearly 20,000 securities and nearly 3 decades of market history along with a backtest engine to see how our strategies have performed in the past.',
     cta: 'Open research',
     icon: LineChart,
   },
@@ -287,11 +287,11 @@ export default function HomePage({ onNavigate, onOpenGuide }: HomePageProps) {
           <h2 className="bento__card-title">Built on clean, reliable, high-quality data.</h2>
           <p className="bento__stat">
             <span className="bento__stat-lead">
-              With over <span className="bento__stat-value">11,000+</span> securities
+              With nearly <span className="bento__stat-value">20,000</span> securities
             </span>
             <span className="bento__stat-tail">
-              containing more than twenty-eight years of historical data, built for faster
-              backtests.
+              supporting international data too, containing more than twenty-eight years of
+              historical data, built for faster backtests.
             </span>
           </p>
         </article>

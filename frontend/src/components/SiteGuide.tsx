@@ -203,8 +203,8 @@ export default function SiteGuide({ open, onClose, onNavigate, index, onIndexCha
             title="Research"
             body={
               IS_MOBILE
-                ? "Start with any company you're curious about and pull up its recent market history. Every chart on SLTP is drawn from the same dataset: over 11,000 symbols, with the five most recent years on a phone. Choose whatever window matters to you, from a single earnings season to those five years, and when you're ready, run any of our premade strategies across those exact dates to see how it would have handled the markets you actually lived through."
-                : "Start with any company you're curious about and pull up decades of its market history. Every chart on SLTP is drawn from the same deep dataset: over 11,000 symbols going back 28 years. Choose whatever window matters to you, from a single earnings season to the full history, and when you're ready, run any of our premade strategies across those exact dates to see how it would have handled the markets you actually lived through."
+                ? "Start with any company you're curious about and pull up its recent market history. Every chart on SLTP is drawn from the same dataset: nearly 20,000 symbols, with the five most recent years on a phone. Choose whatever window matters to you, from a single earnings season to those five years, and when you're ready, run any of our premade strategies across those exact dates to see how it would have handled the markets you actually lived through."
+                : "Start with any company you're curious about and pull up decades of its market history. Every chart on SLTP is drawn from the same deep dataset: nearly 20,000 symbols going back 28 years. Choose whatever window matters to you, from a single earnings season to the full history, and when you're ready, run any of our premade strategies across those exact dates to see how it would have handled the markets you actually lived through."
             }
             ctaLabel="Take the tour"
             onCta={() => takeTour('research')}
