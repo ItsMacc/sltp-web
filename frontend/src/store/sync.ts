@@ -334,8 +334,12 @@ export function getActivePlan(): string[] | null {
 }
 
 /** Adds a key to loadedFiles unless it is already counted. Plan keys only:
-    callers pass bars; sidecars are downloaded with track=false. */
+    a sidecar (catalog, FX, actions) rides along with the download but is not
+    history, so counting it pushed "N of M" past M — 12 bundles plus the four
+    sidecars read as "16 of 12". The plan is the only authority here, so a
+    lookup is cheaper than trusting every caller to pass the right flag. */
 function markLoaded(key: string): void {
+  if (activePlan && !activePlan.includes(key)) return;
   if (status.loadedFiles.includes(key)) return;
   setStatus({ loadedFiles: newestFirst([...status.loadedFiles, key]) });
 }
