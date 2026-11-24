@@ -29,7 +29,7 @@ const PYODIDE_INDEX_URL = 'https://cdn.jsdelivr.net/pyodide/v314.0.7/full/';
     numpy, pyarrow and python-dateutil all ship in the Pyodide distribution
     and are loaded as binary packages, because a WASM runtime cannot use the
     CPython wheels on PyPI. */
-const SLTP_VERSION = '0.1.44';
+const SLTP_VERSION = '0.1.45';
 
 /** The slice of the Pyodide JS API this worker touches. */
 /** The Lab's analyser pins: the same wheels the Lab used to install itself. */
@@ -271,7 +271,7 @@ def run_terminal(code):
 
 def prime_remote_cache():
     # The page's sync writes the bucket tree into the OPFS directory mounted
-    # at ~/.sltp/cache, and that is already the layout sltp 0.1.44 reads:
+    # at ~/.sltp/cache, and that is already the layout sltp 0.1.45 reads:
     #   MARKET_DATA/symbol_catalog.parquet
     #   MARKET_DATA/fx.parquet
     #   MARKET_DATA/DAILY/<market>/<anything>.bin

@@ -137,7 +137,7 @@ def list_strategies() -> list[dict]:
 
 # -------- Market data --------
 # The archive is one catalogue plus one bundle directory per market, and sltp
-# 0.1.44 reads both. These routes are a thin JSON face over that reader: the
+# 0.1.45 reads both. These routes are a thin JSON face over that reader: the
 # site itself reads the same files in the browser, so nothing here is on the
 # chart path.
 

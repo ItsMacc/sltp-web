@@ -99,6 +99,24 @@ def build_flat_bundle(frame: pd.DataFrame) -> bytes:
     return b"".join([preamble, encoded, *blocks])
 
 
+# A valid container with no rows: the empty slot a retained block starts as.
+# A live write never produces one (an emptied bundle is deleted instead), but
+# DELISTED/<market>/<block>.bin exists before its first strip so every block
+# has somewhere to land, and a reader can open it like any other bundle.
+def build_empty_bundle() -> bytes:
+    header = {
+        "symbols": [],
+        "starts": [],
+        "counts": [],
+        "dtypes": DTYPES,
+        "first_session": None,
+        "last_session": None,
+        "offsets": {name: 0 for name, _code in LAYOUT},
+    }
+    encoded = json.dumps(header).encode("utf-8")
+    return MAGIC + struct.pack("<IIQ", FORMAT, len(encoded), 0) + encoded
+
+
 # The frame plus its header back out of the container.
 def read_flat_bytes(blob: bytes) -> tuple[pd.DataFrame, dict]:
     if len(blob) < PREAMBLE:

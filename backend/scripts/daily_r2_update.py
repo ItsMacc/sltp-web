@@ -1,4 +1,4 @@
-"""Daily R2 upsert for the market archive sltp 0.1.44 reads.
+"""Daily R2 upsert for the market archive sltp 0.1.45 reads.
 
 USAGE (from backend/):
   ../.venv/bin/python scripts/daily_r2_update.py   # cron/launchd runs this nightly
@@ -35,7 +35,7 @@ import io
 import json
 import sys
 import traceback
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -222,11 +222,24 @@ class _NyseClosed(AbstractHolidayCalendar):
 
 
 NY = ZoneInfo("America/New_York")
+# The exchange closes at 16:00 New York and Yahoo's copy of the closing bar
+# lands a little after it, so a session counts as finished from this hour on.
+SETTLE = time(17, 0)
 
 
-def expected_session(as_of: date | None = None) -> date:
-    """The newest session whose closing bar should exist by now."""
-    day = as_of or datetime.now(NY).date()
+def expected_session(now: datetime | None = None) -> date:
+    """The newest session whose closing bar should exist by now.
+
+    The hour matters as much as the date. GitHub holds scheduled runs for hours
+    under load, so a cron meant for 17:30 New York can land after midnight, and
+    asking the calendar for "today" then demands a session that has not opened
+    yet — which reports a healthy bucket as stale and re-runs the whole update
+    for nothing. Today only counts once New York is past the close.
+    """
+    moment = now or datetime.now(NY)
+    day = moment.date()
+    if moment.time() < SETTLE:
+        day -= timedelta(days=1)
     closed = {
         stamp.date() for stamp in _NyseClosed().holidays(day - timedelta(days=45), day)
     }
@@ -235,14 +248,16 @@ def expected_session(as_of: date | None = None) -> date:
     return day
 
 
-def check_fresh(tolerance_days: int = 0) -> int:
+def check_fresh(tolerance_days: int = 0, now: datetime | None = None) -> int:
     """Exit 1 when the bucket's newest US session is older than the calendar's."""
+    moment = now or datetime.now(NY)
     manifest = _manifest()
     newest, _tail = _last_session(manifest, "US")
-    wanted = expected_session()
+    wanted = expected_session(moment)
     behind = (wanted - date.fromisoformat(newest)).days
     print(f"freshness: R2 last_session {newest}, calendar wants {wanted} "
-          f"({behind} day(s) behind), version {manifest.get('version')}", flush=True)
+          f"({behind} day(s) behind) at {moment:%Y-%m-%d %H:%M} New York, "
+          f"version {manifest.get('version')}", flush=True)
     if behind > tolerance_days:
         print(f"STALE: the newest session is {newest} but {wanted} should be in "
               "R2 by now. The update ran without new bars — check whether Yahoo "

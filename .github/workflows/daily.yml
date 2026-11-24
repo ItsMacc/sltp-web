@@ -5,12 +5,17 @@
 # already have the repo, the lockstep, and a log per night. Cloudflare's free
 # cron gives 10ms of CPU per invocation, which will not run this.
 #
-# Timing: both crons below are 17:30 in New York, which is after the 16:00 close
-# either way, so the update never reads a half-finished session. GitHub cron is
-# UTC and has no timezone field, so one entry cannot hold a local time across
-# the daylight-saving switch: 21:30 UTC is 17:30 EDT but 16:30 EST, and 22:30
-# UTC is 17:30 EST but 18:30 EDT. Both are scheduled and the off-season one is
-# a duplicate — the freshness check below stops it before it downloads anything.
+# Timing: GitHub cron is UTC and has no timezone field, so one entry cannot hold a
+# local time across the daylight-saving switch: 21:30 UTC is 17:30 EDT but
+# 16:30 EST, and 22:30 UTC is 17:30 EST but 18:30 EDT. Both are scheduled, and
+# only the one that lands at 17:30 New York does the work: the gate below reads
+# the same clock, and a session counts only once New York is past the close.
+#
+# GitHub can also hold a scheduled run for hours when it is busy, so a cron meant
+# for 17:30 New York can start after midnight. Both the gate and the freshness
+# check therefore compare against the newest *closed* session rather than
+# today's date: a late run should find the night already done and skip, not
+# demand a session that has not opened yet and go red at 3 AM.
 #
 # Secrets live in Settings -> Secrets and variables -> Actions. None of them
 # belong in this file.

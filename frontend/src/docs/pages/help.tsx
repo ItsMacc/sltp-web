@@ -179,6 +179,28 @@ export const HELP: DocGroup = {
       title: 'Changelog',
       lead: 'What changed in the documentation and in the engine surface it describes.',
       blocks: [
+        { kind: 'h2', id: 'release-0-1-45', text: 'Release 0.1.45 — November 2026' },
+        {
+          kind: 'p',
+          text: <>Every bar now costs less memory and every indicator costs a fraction of the time. Strategies and results do not move: the same run returns the same numbers.</>,
+        },
+        {
+          kind: 'ul',
+          items: [
+            <><strong>A session costs 2 bytes again.</strong> Bundles have always stored a date as a two-byte day number, and <C>0.1.45</C> stops widening it to four on every read. Reading 1.35 million bars across 300 tickers now peaks at <C>75 MB</C> instead of <C>138 MB</C>.</>,
+            <><strong>A short read copies nothing.</strong> When a ticker&apos;s window sits inside a single bundle, the bars are a view on the mapped file rather than a fresh concatenation.</>,
+            <><strong>EMA, Wilder and RSI are one pass.</strong> The per-bar Python loops are closed-form cumulative sums now. EMA(50) plus RSI(14) over 300 full histories went from <C>1.44s</C> to <C>0.10s</C> on the same data, and the sums matched bit for bit.</>,
+            <><strong>Hook timings are exact.</strong> The sampling that used to estimate late-run <C>on_signal</C> and <C>should_exit</C> days is gone, so the breakdown in a result is measured, never extrapolated.</>,
+            <><strong>The portfolio keeps one copy.</strong> Fills read today&apos;s volume through the engine instead of a second table of bars, and an open lot is looked up in the position it already lives in.</>,
+            <><strong>Hooks take a <C>Mapping</C>.</strong> The histories handed to a hook are the same dict as before; only the annotation moved.</>,
+          ],
+        },
+        {
+          kind: 'callout',
+          tone: 'note',
+          title: 'Nothing to migrate',
+          text: <>A strategy written for <C>0.1.42</C> or <C>0.1.44</C> runs on <C>0.1.45</C> unchanged. The browser engine and the Lab are pinned to it, and the backend requires <C>sltp&gt;=0.1.45</C>.</>,
+        },
         { kind: 'h2', id: 'release-0-1-44', text: 'Release 0.1.44 — November 2026' },
         {
           kind: 'p',
@@ -230,8 +252,8 @@ volume = data.volumes[-20:]`,
         {
           kind: 'callout',
           tone: 'warning',
-          title: '_atr_stop is still broken in 0.1.44',
-          text: <>The shipped helper reads <C>data.highss</C> and <C>data.lowss</C>, and <C>StockData</C> exposes neither, so <C>self._atr_stop(trade, 2.0)</C> raises <C>AttributeError</C> in 0.1.44 as well. Compute the ATR from <C>data.highs</C>, <C>data.lows</C> and <C>data.closes</C> yourself, or use <C>_trailing_stop</C>.</>,
+          title: '_atr_stop is still broken in 0.1.45',
+          text: <>The shipped helper reads <C>data.highss</C> and <C>data.lowss</C>, and <C>StockData</C> exposes neither, so <C>self._atr_stop(trade, 2.0)</C> raises <C>AttributeError</C> in 0.1.44 and 0.1.45 alike. Compute the ATR from <C>data.highs</C>, <C>data.lows</C> and <C>data.closes</C> yourself, or use <C>_trailing_stop</C>.</>,
         },
         { kind: 'h2', id: 'release-0-1-41', text: 'Release 0.1.41 — November 2026' },
         {
@@ -389,16 +411,16 @@ Order(ticker, position_type, allocation, stop_loss, take_profit, meta_data, sizi
           kind: 'table',
           head: ['Runtime', 'Pinned sltp version'],
           rows: [
-            ['Browser engine (Pyodide)', '0.1.44'],
-            ['Lab (Pyodide)', '0.1.44'],
-            ['Backend', '>=0.1.44'],
+            ['Browser engine (Pyodide)', '0.1.45'],
+            ['Lab (Pyodide)', '0.1.45'],
+            ['Backend', '>=0.1.45'],
           ],
         },
         {
           kind: 'callout',
           tone: 'note',
           title: 'Versioning',
-          text: <>These docs track the <C>sltp</C> package on PyPI. The browser engine is pinned to <C>sltp 0.1.44</C>; the backend requires <C>sltp&gt;=0.1.44</C>. The backend and the site release separately; the headings below name behaviour, not a tagged build.</>,
+          text: <>These docs track the <C>sltp</C> package on PyPI. The browser engine is pinned to <C>sltp 0.1.45</C>; the backend requires <C>sltp&gt;=0.1.45</C>. The backend and the site release separately; the headings below name behaviour, not a tagged build.</>,
         },
       ],
     },

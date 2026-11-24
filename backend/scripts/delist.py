@@ -21,19 +21,25 @@ archive:
               delisting waits three nights, an unconfirmed miss ten. A live
               listing that Yahoo stops answering for is only flagged, never
               stripped.
-  4. STRIP    a due symbol's bars are removed from every bundle that holds
-              them (and its splits and dividends), each bundle's manifest
-              entry is recomputed from the bytes actually written, and the
-              catalog row is kept but marked, so the archive can still say
-              what the ticker was.
-  5. ARCHIVE  the full record — name, exchange, country, currency, first and
-              last session, bar count, verdict and the evidence behind it —
-              lives in META/delisted.json. Both markets land in the same
-              object, one entry each.
+  4. KEEP     the bars are moved, never destroyed: every row that leaves a live
+              bundle is appended to DELISTED/<market>/<block>.bin — the same
+              block name in a parallel tree — and its splits and dividends to
+              DELISTED/<market>/actions.parquet. The files exist empty from
+              --seed-archive, so a strip always has somewhere to land, and an
+              append merges, so a repeated night cannot duplicate a session.
+  5. STRIP    the live bundle is rewritten without those rows (one that ends
+              up empty is deleted), its manifest entry is recomputed from the
+              bytes actually written, and the catalog row is kept but marked,
+              so the archive can still say what the ticker was.
+  6. ARCHIVE  the full record — name, exchange, country, currency, first and
+              last session, bar count, verdict, the evidence behind it and the
+              retained keys its bars now live under — is in META/delisted.json.
+              Both markets land in the same object, one entry each.
 
-The archive is why the site can offer the stripped names to a paid tier later
-without keeping them in the data every reader downloads. Nothing in the site
-or in sltp reads META/delisted.json, so it can grow without touching a client.
+Retaining is why the site can offer the stripped names to a paid tier later:
+the bars are still in the bucket, outside the archive every reader downloads.
+Nothing in the site or in sltp reads DELISTED/ or META/delisted.json, so the
+retained tree can grow without touching a client or the manifest.
 
 Why this matters for results: a dataset of listings that still exist today
 cannot contain the companies that failed. Removing the dead names completely
@@ -45,6 +51,7 @@ USAGE (from backend/):
   ../.venv/bin/python scripts/daily_r2_update.py                    # nightly: notice + verify
   ../.venv/bin/python scripts/daily_r2_update.py --delist-review    # dry run: verdicts, no writes
   ../.venv/bin/python scripts/daily_r2_update.py --strip-delisted   # strip what is already due
+  ../.venv/bin/python scripts/delist.py --seed-archive              # create DELISTED/<market>/ empties
   ../.venv/bin/python scripts/delist.py --report                    # print META/delisted.json
 """
 
@@ -61,7 +68,7 @@ import pyarrow.parquet as pq
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # sibling r2.py / flat_bundle.py
 
-from flat_bundle import COLUMNS, build_flat_bundle, read_flat_bytes
+from flat_bundle import COLUMNS, build_empty_bundle, build_flat_bundle, read_flat_bytes
 from r2 import s3
 from sltp.utils.Dates import EPOCH_ORDINAL, register
 
@@ -74,6 +81,9 @@ CATALOG_KEY = "MARKET_DATA/symbol_catalog.parquet"
 MANIFEST_KEY = "META/manifest.json"
 VERSION_KEY = "META/version.txt"
 DELISTED_KEY = "META/delisted.json"
+# Where stripped bars go instead of nowhere: the live block names in a parallel
+# tree. Never in the manifest, never read by the site, so it grows on its own.
+DELISTED_ROOT = "DELISTED"
 # A bundle's header names every symbol it holds; 8MB is far past the largest
 # (19k symbols, ~2.6MB), and it is a guard against reading a whole file.
 HEADER_WINDOW = 8 * 1024 * 1024
@@ -134,6 +144,118 @@ def write_ledger(entries: list[dict], dry_run: bool = False) -> None:
 
 def _ledger_index(entries: list[dict]) -> dict[tuple[str, str], dict]:
     return {(str(entry.get("market")), str(entry.get("symbol"))): entry for entry in entries}
+
+
+# -------- Retained bars (DELISTED/<market>/<block>) --------
+def retained_key(market: str, name: str) -> str:
+    """Where one block's removed bars live: the same block name, another tree."""
+    return f"{DELISTED_ROOT}/{market}/{name}"
+
+
+def _retained_bytes(key: str) -> bytes | None:
+    try:
+        return s3("GET", key)
+    except RuntimeError:  # a missing object is the normal first case
+        return None
+
+
+def _retained_rows(key: str) -> pd.DataFrame | None:
+    """The rows already kept at `key`, or None when nothing readable is there."""
+    blob = _retained_bytes(key)
+    if blob is None:
+        return None
+    try:
+        frame, _header = read_flat_bytes(blob)
+    except ValueError:
+        return None
+    return frame
+
+
+def retain(market: str, name: str, rows: pd.DataFrame, dry_run: bool = False) -> str:
+    """Appends removed bars to the retained block, creating it when missing.
+
+    Merging rather than overwriting is what makes the step safe to repeat: a
+    symbol stripped twice (a re-run, a rename that lands late) keeps one copy
+    of each session, and a night that dies halfway cannot lose what an earlier
+    one kept.
+    """
+    key = retained_key(market, name)
+    if dry_run:
+        print(f"  [dry run] {key}: would keep {len(rows)} row(s)", flush=True)
+        return key
+    existing = _retained_rows(key)
+    if existing is None or existing.empty:
+        merged = rows[COLUMNS].copy()
+    else:
+        merged = (pd.concat([existing[COLUMNS], rows[COLUMNS]], ignore_index=True)
+                  .drop_duplicates(subset=["Symbol", "Date"], keep="last")
+                  .sort_values(["Symbol", "Date"], kind="mergesort")
+                  .reset_index(drop=True))
+    merged["Date"] = merged["Date"].astype("int32")
+    for column in ("Open", "High", "Low", "Close", "Volume"):
+        merged[column] = merged[column].astype("float32")
+    blob = build_flat_bundle(merged)
+    s3("PUT", key, blob)
+    print(f"  {key}: {len(rows)} row(s) kept, {len(merged)} held ({len(blob)} bytes)",
+          flush=True)
+    return key
+
+
+def retain_actions(market: str, rows: pd.DataFrame, dry_run: bool = False) -> str:
+    """Appends removed splits and dividends to the market's retained sidecar."""
+    key = f"{DELISTED_ROOT}/{market}/{ACTIONS_NAME}"
+    if dry_run:
+        print(f"  [dry run] {key}: would keep {len(rows)} action row(s)", flush=True)
+        return key
+    existing = None
+    blob = _retained_bytes(key)
+    if blob is not None:
+        try:
+            existing = pd.read_parquet(io.BytesIO(blob))
+        except Exception:  # noqa: BLE001 - unreadable means rebuild from these rows
+            existing = None
+    if existing is None or existing.empty:
+        merged = rows.copy()
+    else:
+        merged = pd.concat([existing, rows], ignore_index=True)
+        subset = [column for column in ("Symbol", "Date", "Kind") if column in merged.columns]
+        if subset:
+            merged = merged.drop_duplicates(subset=subset, keep="last")
+        order = [column for column in ("Symbol", "Date", "Kind") if column in merged.columns]
+        if order:
+            merged = merged.sort_values(order, kind="mergesort")
+        merged = merged.reset_index(drop=True)
+    buffer = io.BytesIO()
+    merged.to_parquet(buffer, engine="pyarrow", compression="snappy", index=False)
+    s3("PUT", key, buffer.getvalue())
+    print(f"  {key}: {len(rows)} action row(s) kept, {len(merged)} held", flush=True)
+    return key
+
+
+def seed_archive(dry_run: bool = False) -> int:
+    """Creates DELISTED/<market>/<block>.bin for every live block, empty.
+
+    The tree has to exist before the first strip so the folders are there and
+    an operator can see the shape of what is kept. A block that already holds
+    bars is never touched, so this is safe to re-run.
+    """
+    manifest = _manifest()
+    created = 0
+    for market in MARKETS:
+        names = sorted({entry["key"].rsplit("/", 1)[-1] for entry in manifest["files"]
+                        if entry["key"].startswith(f"{ROOT}/{market}/")
+                        and entry["key"].endswith(".bin")})
+        for name in names:
+            key = retained_key(market, name)
+            if _retained_bytes(key) is not None:
+                continue
+            if dry_run:
+                print(f"  [dry run] would create {key}", flush=True)
+                continue
+            s3("PUT", key, build_empty_bundle())
+            print(f"  created {key} (empty)", flush=True)
+            created += 1
+    return created
 
 
 # -------- Second opinion: FinanceDatabase --------
@@ -598,6 +720,7 @@ def strip(markets: dict[str, list[str]], entries: list[dict],
     """
     manifest = _manifest()
     removed: dict[str, int] = {}
+    retained_for: dict[tuple[str, str], list[str]] = {}
     for market, symbols in markets.items():
         targets = {symbol for symbol in symbols if symbol}
         if not targets:
@@ -618,6 +741,12 @@ def strip(markets: dict[str, list[str]], entries: list[dict],
             print(f"  {key}: {before} -> {len(kept)} rows ({dropped} removed for "
                   f"{', '.join(sorted(hit))})", flush=True)
             removed[key] = dropped
+            # Kept before the live file is touched: a failed PUT here leaves
+            # both copies in place, which is the only safe order.
+            at = retain(market, key.rsplit("/", 1)[-1],
+                        frame[frame["Symbol"].isin(hit)], dry_run=dry_run)
+            for symbol in hit:
+                retained_for.setdefault((market, symbol), []).append(at)
             if dry_run:
                 continue
             if kept.empty:
@@ -646,6 +775,7 @@ def strip(markets: dict[str, list[str]], entries: list[dict],
                     print(f"  {actions_key}: {len(actions)} -> {len(kept)} rows", flush=True)
                     removed[actions_key] = dropped
                     if not dry_run:
+                        retain_actions(market, actions[actions["Symbol"].isin(targets)])
                         buffer = io.BytesIO()
                         kept.to_parquet(buffer, engine="pyarrow", compression="snappy",
                                         index=False)
@@ -657,6 +787,11 @@ def strip(markets: dict[str, list[str]], entries: list[dict],
                         if len(kept) == 0:
                             actions_entry["first_session"] = None
                             actions_entry["last_session"] = None
+
+    for entry in entries:
+        keys_kept = retained_for.get((str(entry.get("market")), str(entry.get("symbol"))))
+        if keys_kept:
+            entry["retained"] = sorted(set(keys_kept))
 
     catalog = None if dry_run else update_catalog(manifest, entries)
     return removed, manifest, catalog
@@ -846,6 +981,7 @@ def _strip_entries(due: list[dict], dry_run: bool = False) -> int:
             continue
         record["stripped"] = True
         record["stripped_on"] = today
+        record["retained"] = entry.get("retained") or record.get("retained") or []
         record["rows_removed"] = sum(
             count for key, count in removed.items()
             if f"/{record['market']}/" in key
@@ -917,4 +1053,8 @@ def report() -> int:
 
 
 if __name__ == "__main__":
+    if "--seed-archive" in sys.argv:
+        created = seed_archive(dry_run="--dry-run" in sys.argv)
+        print(f"retained tree: {created} empty block(s) created under {DELISTED_ROOT}/")
+        raise SystemExit(0)
     raise SystemExit(report())

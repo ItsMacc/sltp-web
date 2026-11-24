@@ -18,7 +18,7 @@
 // plan's bars, and loadedFiles can only ever hold plan keys (plus nothing
 // else — sidecars ride along but are never counted).
 //
-// Layout (sltp 0.1.44):
+// Layout (sltp 0.1.45):
 //   META/manifest.json
 //   MARKET_DATA/symbol_catalog.parquet      every market, one table
 //   MARKET_DATA/fx.parquet                  daily FX to USD, one column per currency
@@ -1009,7 +1009,7 @@ export function resetMarketSyncForTests(): void {
 const LEGACY_SWEPT = 'layout-2026.done';
 
 /**
- * Deletes the cache layout sltp 0.1.44 never opens.
+ * Deletes the cache layout sltp 0.1.45 never opens.
  *
  * Builds before the five-year bundles wrote `MARKET_DAILY/market_data_<year>.bin`,
  * `SYMBOL_DATA/symbol_catalog.parquet` and a `BARS/` chart cache. None of it is

@@ -52,6 +52,7 @@ delist.CATALOG_KEY = f"{PREFIX}/MARKET_DATA/symbol_catalog.parquet"
 delist.MANIFEST_KEY = f"{PREFIX}/META/manifest.json"
 delist.VERSION_KEY = f"{PREFIX}/META/version.txt"
 delist.DELISTED_KEY = f"{PREFIX}/META/delisted.json"
+delist.DELISTED_ROOT = f"{PREFIX}/DELISTED"
 daily.MANIFEST_KEY = delist.MANIFEST_KEY
 daily.VERSION_KEY = delist.VERSION_KEY
 
@@ -341,6 +342,46 @@ def verify(state: dict) -> None:
           len(tail_frame[tail_frame["Symbol"] == "HALTED"]) == 1
           and len(tail_frame[tail_frame["Symbol"] == "STALEOLD"]) == 1)
 
+    print("\n-- retained bars (DELISTED/<market>/<block>) --")
+    kept, kept_header = read_flat_bytes(s3("GET", delist.retained_key("US", "1998-2002.bin")))
+    check("the block that held only the doomed name keeps its bars",
+          set(kept_header["symbols"]) == {"DOOM"} and len(kept) == 2,
+          f"{sorted(kept_header['symbols'])} {len(kept)} rows")
+    kept, kept_header = read_flat_bytes(s3("GET", delist.retained_key("US", "2018-2022.bin")))
+    check("the shared block keeps only the rows it removed",
+          set(kept_header["symbols"]) == {"DOOM"} and len(kept) == len(WEEK),
+          f"{sorted(kept_header['symbols'])} {len(kept)} rows")
+    kept, kept_header = read_flat_bytes(s3("GET", delist.retained_key("US", "recent.bin")))
+    check("the tail's doomed rows are kept",
+          set(kept_header["symbols"]) == {"DOOM"} and len(kept) == len(TAIL_DAYS),
+          f"{sorted(kept_header['symbols'])} {len(kept)} rows")
+    kept, kept_header = read_flat_bytes(s3("GET", delist.retained_key("INTERNATIONAL", "2018-2022.bin")))
+    check("the international block keeps GONE.NS",
+          set(kept_header["symbols"]) == {"GONE.NS"} and len(kept) == len(WEEK),
+          f"{sorted(kept_header['symbols'])} {len(kept)} rows")
+    kept_total = 0
+    for market in delist.MARKETS:
+        for name in ("1998-2002.bin", "2018-2022.bin", "recent.bin"):
+            try:
+                kept_total += len(read_flat_bytes(s3("GET", delist.retained_key(market, name)))[0])
+            except RuntimeError:  # a market with no such live block keeps nothing
+                continue
+    check("every removed bar is retained somewhere",
+          kept_total == EXPECTED_REMOVED - 3, f"kept {kept_total}, removed {EXPECTED_REMOVED}")
+    kept_actions = pd.read_parquet(io.BytesIO(s3("GET", f"{delist.DELISTED_ROOT}/US/actions.parquet")))
+    check("the US sidecar's doomed rows are kept",
+          set(kept_actions["Symbol"]) == {"DOOM"} and len(kept_actions) == 2,
+          f"{sorted(set(kept_actions['Symbol']))} {len(kept_actions)} rows")
+    kept_actions = pd.read_parquet(
+        io.BytesIO(s3("GET", f"{delist.DELISTED_ROOT}/INTERNATIONAL/actions.parquet")))
+    check("the international sidecar keeps GONE.NS's row",
+          set(kept_actions["Symbol"]) == {"GONE.NS"} and len(kept_actions) == 1)
+    ledger = delist.read_ledger()
+    record = next(entry for entry in ledger["symbols"] if entry.get("symbol") == "DOOM")
+    check("the ledger points at the kept bars",
+          delist.retained_key("US", "1998-2002.bin") in (record.get("retained") or []),
+          str(record.get("retained")))
+
     print("\n-- empty bundle --")
     check("US 1998-2002 (only DOOM) deleted from the bucket",
           key_for("US", "1998-2002.bin") not in entries)
@@ -424,6 +465,8 @@ def cleanup() -> None:
         key_for("US", "1998-2002.bin"), key_for("US", "2018-2022.bin"),
         key_for("US", "recent.bin"), key_for("US", "actions.parquet"),
         key_for("INTERNATIONAL", "2018-2022.bin"), key_for("INTERNATIONAL", "actions.parquet"),
+        *[delist.retained_key(market, name) for market in delist.MARKETS
+          for name in ("1998-2002.bin", "2018-2022.bin", "recent.bin", "actions.parquet")],
     ]
     for key in keys:
         assert key.startswith(PREFIX + "/"), f"refusing to delete a live key: {key}"
@@ -446,6 +489,9 @@ def main() -> int:
     before = hashlib.sha256(s3("GET", LIVE_MANIFEST)).hexdigest()
     print(f"live manifest hash before: {before[:16]}")
     print(f"scratch prefix: {PREFIX}/\n")
+    # A run that died before its own cleanup leaves objects that would make the
+    # seed look like it created nothing; start from an empty prefix.
+    cleanup()
 
     state = write_scratch()
     fake_yfinance()
@@ -491,6 +537,14 @@ def main() -> int:
     check("dry run left DOOM in place", "DOOM" in set(still_header["symbols"]))
     check("dry run left the archive untouched",
           not any(entry.get("stripped") for entry in delist.read_ledger()["symbols"]))
+
+    print("\n-- retained tree --")
+    created = delist.seed_archive()
+    check("seed made one empty block per live block", created == 4, f"{created} created")
+    empty, empty_header = read_flat_bytes(s3("GET", delist.retained_key("US", "1998-2002.bin")))
+    check("a seeded block is a readable empty bundle",
+          len(empty) == 0 and empty_header["symbols"] == [], f"{len(empty)} rows")
+    check("seeding again writes nothing", delist.seed_archive() == 0)
 
     removed = delist._strip_entries(due, dry_run=False)
     check("strip removed every doomed row", removed == EXPECTED_REMOVED, f"{removed} rows")

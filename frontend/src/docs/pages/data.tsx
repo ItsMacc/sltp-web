@@ -180,9 +180,9 @@ sltp backtest momentum.py --start 2019-01-01 --end 2023-12-31`,
           title: 'One bias the data cannot remove',
           text: (
             <>
-              A ticker that stops trading is verified, then archived: its bars leave the bundles and its
-              record moves to <C>META/delisted.json</C>. No run can trade it again, which is the honest way to
-              keep a graveyard out of the data. It also means a run only meets listings that survived. The
+              A ticker that stops trading is verified, then archived. Its bars move out of the live bundles
+              into a retained copy that ships to nobody, and its record moves to <C>META/delisted.json</C>. No
+              run can trade it again, which is the honest way to keep a graveyard out of the data. It also means a run only meets listings that survived. The
               companies that failed are missing from the sample, so results lean a little optimistic. Treat a
               backtest as the best case for an idea, not a replay of everything that existed.
             </>
