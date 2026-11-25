@@ -31,10 +31,11 @@ export function Overview({
   onSwitchLevel,
 }: OverviewProps) {
   const lessons = lessonsOf(level);
-  const done = lessons.filter((lesson) => isDone(lesson.id)).length;
+  const liveLessons = lessons.filter((lesson) => lesson.status === 'live');
+  const done = liveLessons.filter((lesson) => isDone(lesson.id)).length;
   const nextLevel = nextLevelFor(level.id);
   const isOutline = level.status === 'outline';
-  const percent = lessons.length ? Math.round((done / lessons.length) * 100) : 0;
+  const percent = liveLessons.length ? Math.round((done / liveLessons.length) * 100) : 0;
 
   return (
     <div className="learn-view">
@@ -65,7 +66,7 @@ export function Overview({
             <span style={{ width: `${percent}%` }} />
           </div>
           <div className="learn-progress-meta">
-            <span>{done} of {lessons.length} lessons</span>
+            <span>{done} of {liveLessons.length} lessons</span>
             {!certified && allDone && (
               <button type="button" className="learn-text-link" onClick={onOpenQuiz}>
                 Take the level quiz <ArrowRight size={15} aria-hidden="true" />
@@ -99,7 +100,7 @@ export function Overview({
         ))}
       </div>
 
-      {!isOutline && (
+      {!isOutline && level.quiz.length > 0 && (
         <div className="learn-quiz-row">
           <div>
             <p className="learn-row-title">Level quiz</p>
@@ -139,7 +140,7 @@ export function Overview({
         <NextLevelCard nextLevel={nextLevel} onSwitchLevel={onSwitchLevel} />
       )}
 
-      {!certified && !isOutline && (
+      {!certified && !isOutline && level.quiz.length > 0 && (
         <p className="learn-certificate-hint">
           Pass the level quiz to earn the certificate.
         </p>
@@ -164,12 +165,12 @@ function LessonRow({
   state: 'earned' | 'current' | 'locked';
   onOpen: () => void;
 }) {
-  const outline = level.status === 'outline';
+  const planned = level.status === 'outline' || lesson.status !== 'live';
   const badgeIcon = iconFor(lesson.icon);
   const previous = level.parts
     .flatMap((part) => part.lessons)
     .find((item) => item.num === String.fromCharCode(lesson.num.charCodeAt(0) - 1));
-  const actionText = outline
+  const actionText = planned
     ? 'Planned'
     : done
       ? 'Review'
@@ -179,7 +180,7 @@ function LessonRow({
           ? `Opens after ${previous.num}`
           : 'Locked';
 
-  if (outline) {
+  if (planned) {
     return (
       <div className="learn-lesson-row learn-lesson-row--planned">
         <span className="learn-lesson-num">{lesson.num}</span>

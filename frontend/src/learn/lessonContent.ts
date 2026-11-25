@@ -4,9 +4,11 @@
 import type { LessonContent } from './types';
 import { ADVANCED_LESSON_CONTENT } from './advancedLessonContent';
 import { BACKTEST_LESSON_CONTENT } from './backtestLessonContent';
+import { HOLDS_UP_PART_1 } from './holdsUpPart1';
 
 export const LESSON_CONTENT: Record<string, LessonContent> = {
   ...BACKTEST_LESSON_CONTENT,
+  ...HOLDS_UP_PART_1,
   'what-is-a-stock': {
     objectives: [
       'Explain what a share is and who owns it',

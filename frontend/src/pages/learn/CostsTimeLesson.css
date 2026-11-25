@@ -1,0 +1,951 @@
+/* ============================================================
+   CostsTimeLesson.css — Level 5 lesson A. A worksheet with a numbered
+   gutter, a paper receipt, a heat table and a log-scale clock.
+   Widths use % and fluid caps; rem is for atoms. Breakpoints in rem.
+   ============================================================ */
+
+.ct-lesson {
+  --ct-gutter: 2.75rem;
+  display: flex;
+  flex-direction: column;
+}
+
+.ct-lesson *,
+.ct-lesson *::before,
+.ct-lesson *::after {
+  box-sizing: border-box;
+}
+
+@media (min-width: 48rem) {
+  .ct-lesson {
+    --ct-gutter: 4rem;
+  }
+}
+
+/* ---------- Briefing ---------- */
+
+.ct-brief {
+  display: grid;
+  gap: var(--space-lg);
+  padding-bottom: var(--space-xl);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+@media (min-width: 48rem) {
+  .ct-brief {
+    grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+    gap: var(--space-xl);
+    align-items: start;
+  }
+}
+
+.ct-lead .ct-copy {
+  max-width: 38rem;
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 1.0625rem;
+  line-height: 1.65;
+  text-wrap: pretty;
+}
+
+.ct-lead .ct-copy:first-child {
+  color: var(--text-primary);
+  font-size: 1.25rem;
+  line-height: 1.55;
+}
+
+.ct-lead .ct-copy + .ct-copy {
+  margin-top: var(--space-md);
+}
+
+.ct-words {
+  padding: var(--space-lg);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-canvas);
+}
+
+.ct-words-list {
+  display: grid;
+  gap: var(--space-md);
+  margin: var(--space-md) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ct-word {
+  display: grid;
+  grid-template-columns: 1.5rem minmax(0, 1fr);
+  gap: var(--space-xs);
+}
+
+.ct-word-num {
+  padding-top: 0.2rem;
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.ct-word-term {
+  display: block;
+  color: var(--text-primary);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.ct-word-text {
+  display: block;
+  margin-top: 0.125rem;
+  color: var(--text-muted);
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+/* ---------- Shared type ---------- */
+
+.ct-lesson .ct-eyebrow {
+  margin: 0;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.08em;
+  line-height: 1.4;
+  text-transform: uppercase;
+}
+
+.ct-copy {
+  max-width: 40rem;
+  margin: 0 0 var(--space-md);
+  color: var(--text-secondary);
+  font-size: 1.0625rem;
+  line-height: 1.68;
+  text-wrap: pretty;
+}
+
+.ct-list {
+  display: grid;
+  gap: var(--space-xs);
+  max-width: 40rem;
+  margin: 0 0 var(--space-md);
+  padding: 0;
+  list-style: none;
+}
+
+.ct-list li {
+  position: relative;
+  padding-left: 1.25rem;
+  color: var(--text-secondary);
+  font-size: 1.0625rem;
+  line-height: 1.6;
+}
+
+.ct-list li::before {
+  content: '';
+  position: absolute;
+  top: 0.7em;
+  left: 0;
+  width: 0.5rem;
+  height: 1px;
+  background: var(--accent);
+}
+
+/* ---------- Route ---------- */
+
+.ct-route {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+  padding: var(--space-lg) 0 var(--space-md) calc(var(--ct-gutter) + var(--space-sm));
+}
+
+@media (min-width: 48rem) {
+  .ct-route {
+    padding-left: calc(var(--ct-gutter) + var(--space-lg));
+  }
+}
+
+.ct-route-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  min-height: 2.25rem;
+  padding: 0.3rem 0.7rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+  line-height: 1.2;
+  cursor: pointer;
+}
+
+.ct-route-btn span {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.ct-route-btn:hover {
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+.ct-route-btn.is-active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.ct-route-btn.is-active span {
+  color: var(--accent);
+}
+
+/* ---------- Stations ---------- */
+
+.ct-station {
+  display: grid;
+  grid-template-columns: var(--ct-gutter) minmax(0, 1fr);
+  gap: var(--space-sm);
+  padding-top: var(--space-xl);
+  scroll-margin-top: calc(var(--site-header-h, 5rem) + var(--learn-sticky-h) + 1.5rem);
+}
+
+@media (min-width: 48rem) {
+  .ct-station {
+    gap: var(--space-lg);
+  }
+}
+
+.ct-station + .ct-station {
+  margin-top: var(--space-xl);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.ct-gutter {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  align-self: stretch;
+}
+
+.ct-gutter span {
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+  padding-top: 0.5rem;
+}
+
+.ct-gutter::after {
+  content: '';
+  flex: 1;
+  width: 1px;
+  margin-top: var(--space-sm);
+  background: var(--border-subtle);
+}
+
+.ct-station-main {
+  min-width: 0;
+}
+
+.ct-station-title {
+  margin: 0 0 var(--space-lg);
+  font-family: var(--font-heading);
+  font-size: clamp(1.5rem, 2.6vw, 1.875rem);
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  line-height: 1.15;
+}
+
+/* ---------- Formula ---------- */
+
+.ct-formula {
+  margin: 0 0 var(--space-lg);
+  padding: var(--space-md) var(--space-lg);
+  border-left: 2px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-canvas);
+}
+
+.ct-formula:last-child {
+  margin-bottom: 0;
+}
+
+.ct-formula .ct-eyebrow {
+  margin-bottom: var(--space-sm);
+}
+
+.ct-formula-list {
+  display: grid;
+  gap: var(--space-sm);
+  margin: 0;
+}
+
+.ct-formula-row {
+  display: grid;
+  grid-template-columns: minmax(7rem, 10rem) minmax(0, 1fr);
+  gap: var(--space-sm);
+  align-items: baseline;
+}
+
+.ct-formula-row dt {
+  color: var(--text-muted);
+  font-size: 0.875rem;
+  line-height: 1.4;
+}
+
+.ct-formula-row dd {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  margin: 0;
+}
+
+.ct-formula-row code {
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+  line-height: 1.45;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.ct-formula-row dd span {
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+
+/* ---------- Note ---------- */
+
+.ct-note {
+  margin-top: var(--space-lg);
+  padding: var(--space-md) var(--space-lg);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+}
+
+.ct-note-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.ct-note-title::before {
+  content: '';
+  flex: none;
+  width: 0.4rem;
+  height: 0.4rem;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.ct-note p {
+  margin: var(--space-xs) 0 0;
+  color: var(--text-secondary);
+  font-size: 0.9375rem;
+  line-height: 1.6;
+}
+
+.ct-note p.ct-note-title {
+  margin: 0;
+}
+
+/* ---------- Figure panel ---------- */
+
+.ct-figure {
+  margin: var(--space-lg) 0 0;
+}
+
+.ct-figure:first-child {
+  margin-top: 0;
+}
+
+.ct-panel {
+  padding: var(--space-lg);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.ct-panel-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-md);
+  margin-bottom: var(--space-lg);
+  padding-bottom: var(--space-sm);
+  border-bottom: 1px dashed var(--border-subtle);
+}
+
+.ct-panel-tag {
+  flex: none;
+  padding: 0.1rem 0.5rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-full);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.ct-caption {
+  margin: var(--space-sm) 0 0;
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+  line-height: 1.55;
+}
+
+.ct-foot {
+  margin: var(--space-md) 0 0;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+/* ---------- Shared readout ---------- */
+
+.ct-readout {
+  margin: var(--space-md) 0 0;
+  color: var(--text-muted);
+  font-size: 0.875rem;
+  line-height: 1.55;
+}
+
+.ct-readout strong {
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+}
+
+/* ---------- Controls ---------- */
+
+.ct-controls {
+  display: grid;
+  gap: var(--space-md);
+  align-content: start;
+}
+
+.ct-slider {
+  display: grid;
+  gap: var(--space-2xs);
+  min-width: 0;
+}
+
+.ct-slider-label {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+  line-height: 1.4;
+}
+
+.ct-slider-label strong {
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+}
+
+.ct-slider input {
+  width: 100%;
+  min-height: 1.75rem;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.ct-field {
+  display: grid;
+  gap: var(--space-2xs);
+}
+
+.ct-field--inline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-top: var(--space-md);
+}
+
+.ct-field-label {
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+  line-height: 1.4;
+}
+
+.ct-seg {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-full);
+  background: var(--bg-canvas);
+}
+
+.ct-seg-btn {
+  min-height: 1.9rem;
+  padding: 0.2rem 0.6rem;
+  border: 0;
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+  cursor: pointer;
+}
+
+.ct-seg-btn:hover {
+  color: var(--text-primary);
+}
+
+.ct-seg-btn.is-on {
+  background: var(--accent);
+  color: var(--bg-canvas);
+}
+
+/* ---------- 01, the receipt ---------- */
+
+.ct-toll {
+  display: grid;
+  gap: var(--space-lg);
+}
+
+@media (min-width: 48rem) {
+  .ct-toll {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: var(--space-xl);
+    align-items: start;
+  }
+}
+
+.ct-receipt {
+  padding: var(--space-md) var(--space-md) var(--space-sm);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-canvas);
+}
+
+.ct-receipt-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  padding-bottom: var(--space-sm);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.ct-receipt-row,
+.ct-receipt-total {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-sm);
+  padding: 0.35rem 0;
+  color: var(--text-muted);
+  font-size: 0.8438rem;
+  line-height: 1.4;
+}
+
+.ct-receipt-row strong,
+.ct-receipt-total strong {
+  flex: none;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 0.8438rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+}
+
+.ct-leader {
+  flex: 1;
+  align-self: center;
+  min-width: var(--space-sm);
+  border-bottom: 1px dotted var(--border-strong);
+  transform: translateY(0.15rem);
+}
+
+.ct-receipt-total {
+  margin-top: var(--space-2xs);
+  padding-top: var(--space-sm);
+  border-top: 1px solid var(--border-strong);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.ct-receipt-total strong {
+  font-weight: 600;
+}
+
+.ct-receipt-stamp {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-sm);
+  margin-top: var(--space-md);
+  padding-top: var(--space-sm);
+  border-top: 1px dashed var(--border-subtle);
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+}
+
+.ct-receipt-stamp strong {
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 1.375rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  line-height: 1;
+}
+
+.ct-receipt-stamp span:last-child {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 02, the heat table ---------- */
+
+.ct-grid {
+  display: grid;
+  grid-template-columns: 4.25rem repeat(4, minmax(0, 1fr));
+  gap: 2px;
+}
+
+.ct-grid-col,
+.ct-grid-row {
+  display: flex;
+  align-items: center;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.3;
+}
+
+.ct-grid-col {
+  justify-content: center;
+  padding-bottom: var(--space-2xs);
+}
+
+.ct-cell {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-height: 2.6rem;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-canvas);
+  cursor: pointer;
+}
+
+.ct-cell-fill {
+  position: absolute;
+  inset: 0;
+  background: var(--accent);
+}
+
+.ct-cell-value {
+  position: relative;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+
+.ct-cell:hover {
+  border-color: var(--border-strong);
+}
+
+.ct-cell.is-selected {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+/* ---------- 03, the clock ---------- */
+
+.ct-clock {
+  display: grid;
+}
+
+.ct-clock-head {
+  margin-bottom: var(--space-lg);
+}
+
+.ct-clock-plot {
+  position: relative;
+  height: 13rem;
+  margin-left: 3.25rem;
+  border-bottom: 1px solid var(--border-strong);
+}
+
+.ct-clock-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  border-top: 1px dashed var(--border-subtle);
+}
+
+.ct-clock-line span {
+  position: absolute;
+  top: -0.45rem;
+  left: -3.25rem;
+  width: 2.9rem;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.ct-clock-bars {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+  gap: 2%;
+  padding: 0 2%;
+}
+
+.ct-clock-col {
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+  height: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+
+.ct-clock-bar {
+  width: 100%;
+  max-width: 2.25rem;
+  height: var(--ct-bar, 10%);
+  min-height: 3px;
+  border-radius: 3px 3px 0 0;
+  background: var(--border-strong);
+}
+
+.ct-clock-value {
+  position: absolute;
+  bottom: calc(var(--ct-bar, 10%) + 0.2rem);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.ct-clock-col:hover .ct-clock-bar {
+  background: var(--text-muted);
+}
+
+.ct-clock-col.is-selected .ct-clock-bar {
+  background: var(--accent);
+}
+
+.ct-clock-col.is-selected .ct-clock-value {
+  color: var(--text-primary);
+}
+
+.ct-clock-labels {
+  display: flex;
+  gap: 2%;
+  margin-left: 3.25rem;
+  padding: 0.35rem 2% 0;
+}
+
+.ct-clock-labels span {
+  flex: 1;
+  color: var(--text-muted);
+  font-size: 0.68rem;
+  text-align: center;
+}
+
+/* ---------- 04, the record ---------- */
+
+.ct-record-chart {
+  display: grid;
+  gap: var(--space-sm);
+}
+
+.ct-record-row {
+  display: grid;
+  grid-template-columns: minmax(5.5rem, 8rem) minmax(0, 1fr) 3rem;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.ct-record-label {
+  color: var(--text-secondary);
+  font-size: 0.8125rem;
+  line-height: 1.35;
+}
+
+.ct-record-track {
+  display: block;
+  height: 1.35rem;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--bg-surface-hover);
+}
+
+.ct-record-fill {
+  display: block;
+  height: 100%;
+  background: var(--border-strong);
+}
+
+.ct-record-row.is-subject .ct-record-label {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.ct-record-row.is-subject .ct-record-fill {
+  background: var(--accent);
+}
+
+.ct-record-value {
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.ct-record-note {
+  margin: var(--space-md) 0 0;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+.ct-disclosure {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.5rem;
+  margin-top: var(--space-sm);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font-size: 0.875rem;
+  line-height: 1.4;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.ct-disclosure:hover {
+  color: var(--accent-hover);
+}
+
+.ct-finding {
+  display: grid;
+  gap: var(--space-xs);
+  margin-top: var(--space-sm);
+  padding: var(--space-md) var(--space-lg);
+  border-left: 2px solid var(--accent);
+  border-radius: var(--radius-sm);
+  background: var(--bg-canvas);
+}
+
+.ct-finding p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 0.8438rem;
+  line-height: 1.55;
+}
+
+.ct-finding strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.ct-source {
+  margin: var(--space-md) 0 0;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  line-height: 1.55;
+}
+
+.ct-source a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+
+/* ---------- Focus ---------- */
+
+.ct-lesson button:focus-visible,
+.ct-lesson input:focus-visible,
+.ct-lesson a:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 3px;
+}
+
+.ct-cell:focus-visible,
+.ct-clock-col:focus-visible {
+  outline-offset: 1px;
+}
+
+/* ---------- Small screens ---------- */
+
+@media (max-width: 30rem) {
+  .ct-grid {
+    grid-template-columns: 3.4rem repeat(4, minmax(0, 1fr));
+  }
+
+  .ct-clock-plot,
+  .ct-clock-labels {
+    margin-left: 2.6rem;
+  }
+
+  .ct-clock-line span {
+    left: -2.6rem;
+    width: 2.3rem;
+    font-size: 0.56rem;
+  }
+
+  .ct-clock-value {
+    display: none;
+    font-size: 0.56rem;
+  }
+
+  .ct-clock-col.is-selected .ct-clock-value {
+    display: block;
+  }
+
+  .ct-record-row {
+    grid-template-columns: minmax(4.5rem, 6rem) minmax(0, 1fr) 2.6rem;
+  }
+}

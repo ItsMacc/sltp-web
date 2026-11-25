@@ -120,9 +120,9 @@ export function LessonView({
             type="button"
             className="learn-rail-quiz"
             onClick={onOpenQuiz}
-            disabled={!allDone}
+            disabled={!allDone || level.quiz.length === 0}
           >
-            Level quiz {!allDone && <LockKeyhole size={13} />}
+            Level quiz {(!allDone || level.quiz.length === 0) && <LockKeyhole size={13} />}
           </button>
         </aside>
 
@@ -296,8 +296,13 @@ export function LessonView({
                 </button>
               );
             })}
-            <button type="button" className="learn-sheet-item" onClick={onOpenQuiz} disabled={!allDone}>
-              <span>{allDone ? <span className="learn-rail-dot" /> : <LockKeyhole size={14} />}</span>
+            <button
+              type="button"
+              className="learn-sheet-item"
+              onClick={onOpenQuiz}
+              disabled={!allDone || level.quiz.length === 0}
+            >
+              <span>{allDone && level.quiz.length > 0 ? <span className="learn-rail-dot" /> : <LockKeyhole size={14} />}</span>
               Level quiz
             </button>
           </div>

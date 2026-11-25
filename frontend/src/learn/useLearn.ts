@@ -63,7 +63,7 @@ export function useLearn() {
 
   const levelCounts = useCallback(
     (level: Level) => {
-      const lessons = lessonsOf(level);
+      const lessons = lessonsOf(level).filter((lesson) => lesson.status === 'live');
       return {
         done: lessons.filter((lesson) => progress.sections.includes(lesson.id)).length,
         total: lessons.length,

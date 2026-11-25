@@ -203,6 +203,10 @@ export const LEARN_GLOSSARY: Record<string, GlossaryTerm> = {
   beta: t('How much an investment tends to move when the market moves.', 'testing-properly'),
 
   /* Level 5 */
+  'round trip': t('One buy and the sell that ends it. Both sides pay.', 'patterns-fade'),
+  hurdle: t('The price move a position needs before its costs are covered.', 'costs-time', 'A 10 basis point move on a $40 share is 4 cents.'),
+  'cost drag': t('The share of a year of return that costs take.', 'costs-realism'),
+  'basis point': t('One hundredth of a percentage point, written as 0.01%.', 'costs-time', '25 basis points is 0.25%.'),
   liquidity: t('How easily an asset can be bought or sold without moving its price.', 'trading-costs'),
   hedge: t('A position that offsets some of the risk of another position.', 'survival'),
   rebalancing: t('Bringing a portfolio back to its target allocation.', 'allocation-rebalancing'),

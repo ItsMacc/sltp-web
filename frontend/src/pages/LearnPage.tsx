@@ -217,7 +217,10 @@ export default function LearnPage() {
     lesson && lessonLevel ? learn.isLessonDone(lesson.id) || learn.isLessonUnlocked(lessonLevel, lesson.id) : false;
   const showLesson = Boolean(lesson && lesson.content && lessonLevel && lessonUnlocked);
   const showQuiz =
-    route.kind === 'quiz' && currentLevel.status === 'live' && learn.allLessonsDone(currentLevel);
+    route.kind === 'quiz' &&
+    currentLevel.status === 'live' &&
+    currentLevel.quiz.length > 0 &&
+    learn.allLessonsDone(currentLevel);
   const showCertificate = route.kind === 'certificate' && learn.isCertified(currentLevel.id);
 
   let view: ReactNode;

@@ -4,6 +4,7 @@ import { GlossaryText } from '../../components/GlossaryText';
 import { LEARN_GLOSSARY } from '../../learn/learnGlossary';
 import type { ContentBlock } from '../../learn/types';
 import { LessonWidget } from './Widgets';
+import { CostsTimeLesson } from './CostsTimeLesson';
 import { layoutForLesson } from './lessonLayout';
 
 const G = ({ children }: { children: string }) => (
@@ -11,6 +12,11 @@ const G = ({ children }: { children: string }) => (
 );
 
 export function LessonBlocks({ blocks, lessonId }: { blocks: ContentBlock[]; lessonId: string }) {
+  // Level 5 opens with a worksheet layout instead of the reading column.
+  if (lessonId === 'costs-time') {
+    return <CostsTimeLesson blocks={blocks} />;
+  }
+
   const layout = layoutForLesson(lessonId);
   const figureIndex = blocks.findIndex((block) => block.kind === 'figure');
   const figure = figureIndex >= 0 ? blocks[figureIndex] : undefined;

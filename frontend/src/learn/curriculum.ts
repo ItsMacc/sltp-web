@@ -702,7 +702,7 @@ const levelThree: Level = {
         'Healthy Doubt',
         'compass',
         'You can tell a pattern from noise and a random walk.',
-        ['noise', 'random walk'],
+        ['noise', 'random walk', 'round trip'],
         ['pattern', 'price', 'signal', 'whipsaw', 'correlation'],
       ),
     ]),
@@ -993,7 +993,7 @@ const levelFour: Level = {
         'Real-World Costs',
         'receipt',
         'You can compare gross and net results and see how turnover makes costs compound.',
-        ['slippage', 'spread', 'turnover'],
+        ['slippage', 'spread', 'turnover', 'cost drag'],
         ['commission', 'trade', 'return'],
       ),
       live(
@@ -1154,7 +1154,7 @@ const levelFive: Level = {
   number: 5,
   name: 'What holds up',
   title: 'What tends to hold up in practice',
-  status: 'outline',
+  status: 'live',
   lead: 'Costs, allocation, trend filters, long-run tendencies, discipline, trading costs, survival, fading edges and choosing a strategy.',
   outcomes: [
     'Judge a strategy by its costs, risks and evidence',
@@ -1164,7 +1164,17 @@ const levelFive: Level = {
   certificate: 'Can judge a strategy and its risks.',
   parts: [
     part('Part 1: Investing', [
-      lesson('A', 'costs-time', 'Costs and time', 'Fees compound against you, and time in the market matters.', 'Costs Matter', 'receipt'),
+      live(
+        'A',
+        'costs-time',
+        'Costs and time',
+        'Fees compound against you, and time in the market matters.',
+        'Costs Matter',
+        'receipt',
+        'You can price a round trip and turn it into a yearly cost.',
+        ['hurdle', 'basis point'],
+        ['spread', 'slippage', 'turnover', 'commission'],
+      ),
       lesson('B', 'allocation-rebalancing', 'Allocation and rebalancing', 'A mix of assets, and when to bring it back to the target.', 'Rebalancer', 'scale'),
       lesson('C', 'trend-filters', 'Trend filters in practice', 'What a long-average filter does, and what it costs.', 'Cutting the Fall', 'gauge'),
       lesson('D', 'momentum-value', 'Momentum and value', 'Long-run tendencies, why they might exist, and their bad decades.', 'Long-Run Tendencies', 'trend'),
