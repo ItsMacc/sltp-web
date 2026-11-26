@@ -172,12 +172,19 @@ export function LevelQuiz({
   const questions = useMemo(() => level.quiz.map(displayQuestion), [level.quiz]);
 
   useEffect(() => {
+    const key = `sltp_learn_quiz.${level.id}`;
     try {
-      sessionStorage.setItem(`sltp_learn_quiz.${level.id}`, JSON.stringify(state));
+      // A finished quiz is all locked, and writing it back would reopen a fully
+      // answered quiz on the next visit. Only an attempt in progress is saved.
+      if (state.locked.length === questions.length) {
+        sessionStorage.removeItem(key);
+        return;
+      }
+      sessionStorage.setItem(key, JSON.stringify(state));
     } catch {
       /* private mode */
     }
-  }, [level.id, state]);
+  }, [level.id, state, questions.length]);
 
   const answered = useMemo(
     () => questions.filter((question) => state.locked.includes(question.id) || state.answers[question.id] != null).length,
@@ -308,7 +315,7 @@ export function LevelQuiz({
       <div className="learn-quiz-bar">
         <div>
           <strong>{answered} of {questions.length} answered</strong>
-          {!allAnswered && <span>Answer every question to check.</span>}
+          {!allAnswered && !message && <span>Answer every question to check.</span>}
           {message && <span role="status">{message}</span>}
         </div>
         <button type="button" className="learn-primary-button" onClick={check} disabled={!allAnswered}>

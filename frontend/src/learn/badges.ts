@@ -15,7 +15,7 @@ import {
   TrendingUp,
   type LucideIcon,
 } from 'lucide-react';
-import type { IconKey } from './types';
+import type { IconKey, Level } from './types';
 
 export const BADGE_ICONS: Record<IconKey, LucideIcon> = {
   building: Building2,
@@ -36,6 +36,11 @@ export const MEDAL_SHAPES = ['circle', 'hexagon', 'octagon', 'rounded', 'diamond
 
 export function iconFor(key: IconKey): LucideIcon {
   return BADGE_ICONS[key] ?? BookOpen;
+}
+
+/** Certificates share one icon language: the first level charts, the last scales, the rest books. */
+export function certificateIconFor(level: Level, levelCount: number): LucideIcon {
+  return iconFor(level.number === 1 ? 'chart' : level.number === levelCount ? 'scale' : 'book');
 }
 
 export function shapeForLevel(levelIndex: number): (typeof MEDAL_SHAPES)[number] {

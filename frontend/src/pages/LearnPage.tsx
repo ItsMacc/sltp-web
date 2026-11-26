@@ -89,7 +89,12 @@ export default function LearnPage() {
   const currentLevel =
     levelById(route.kind === 'level' || route.kind === 'lesson' || route.kind === 'quiz' || route.kind === 'certificate' ? route.levelId : learn.progress.lastLevel) ??
     LEVELS[0];
-  const activeId = route.kind === 'workshops' ? 'workshops' : currentLevel.id;
+  const activeId =
+    route.kind === 'workshops'
+      ? 'workshops'
+      : route.kind === 'badges' || route.kind === 'glossary'
+        ? ''
+        : currentLevel.id;
   const viewKey = routeKey(route);
 
   const shelfRequested = route.kind === 'level' && shelfFocus?.levelId === route.levelId;
@@ -215,7 +220,9 @@ export default function LearnPage() {
   const lessonLevel = lesson ? levelForLesson(lesson.id) : undefined;
   const lessonUnlocked =
     lesson && lessonLevel ? learn.isLessonDone(lesson.id) || learn.isLessonUnlocked(lessonLevel, lesson.id) : false;
-  const showLesson = Boolean(lesson && lesson.content && lessonLevel && lessonUnlocked);
+  const showLesson = Boolean(
+    lesson && lesson.content && lessonLevel && lessonLevel.id === currentLevel.id && lessonUnlocked,
+  );
   const showQuiz =
     route.kind === 'quiz' &&
     currentLevel.status === 'live' &&
@@ -312,7 +319,6 @@ export default function LearnPage() {
 
       <LevelSwitcher
         activeId={activeId}
-        progress={learn.progress}
         counts={counts}
         onSelect={(id) => {
           if (id === 'workshops') {

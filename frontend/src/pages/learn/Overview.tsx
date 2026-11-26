@@ -1,10 +1,10 @@
 // Overview.tsx — Level overview, certificate and the next-level card.
 
 import { ArrowRight, Check, LockKeyhole } from 'lucide-react';
-import { lessonsOf, nextLevel as nextLevelFor, readingMinutes } from '../../learn/curriculum';
+import { LEVELS, lessonsOf, nextLevel as nextLevelFor, readingMinutes } from '../../learn/curriculum';
 import type { Level, Lesson } from '../../learn/types';
 import type { LearnProgress } from '../../learn/progress';
-import { iconFor } from '../../learn/badges';
+import { certificateIconFor, iconFor } from '../../learn/badges';
 import { Medal } from './Medal';
 
 interface OverviewProps {
@@ -39,7 +39,7 @@ export function Overview({
 
   return (
     <div className="learn-view">
-      <p className="learn-kicker">Level {level.number} of 5</p>
+      <p className="learn-kicker">Level {level.number} of {LEVELS.length}</p>
       <h1 className="learn-level-title">{level.title}</h1>
       <p className="learn-lead">{level.lead}</p>
 
@@ -104,7 +104,7 @@ export function Overview({
         <div className="learn-quiz-row">
           <div>
             <p className="learn-row-title">Level quiz</p>
-            <p className="learn-row-summary">10 questions. It unlocks when every lesson is done.</p>
+            <p className="learn-row-summary">{level.quiz.length} questions. It unlocks when every lesson is done.</p>
           </div>
           <div className="learn-row-action">
             {certified ? (
@@ -263,7 +263,7 @@ function CertificateBlock({
   return (
     <section className={`learn-certificate${compact ? ' learn-certificate--compact' : ''}`}>
       <Medal
-        icon={iconFor(level.number === 1 ? 'chart' : level.number === 5 ? 'scale' : 'book')}
+        icon={certificateIconFor(level, LEVELS.length)}
         state="earned"
         size={compact ? 56 : 120}
         levelIndex={level.number - 1}

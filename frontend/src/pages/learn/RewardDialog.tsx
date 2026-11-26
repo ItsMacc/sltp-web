@@ -70,7 +70,7 @@ export function RewardDialog({
         ref={dialogRef}
       >
         <Medal
-          icon={iconFor('chart')}
+          icon={iconFor(badge.icon)}
           state="earned"
           size={120}
           levelIndex={levelIndex}

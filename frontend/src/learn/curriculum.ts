@@ -1036,7 +1036,7 @@ const levelFour: Level = {
         'testing-properly',
         'Testing properly',
         'Out-of-sample tests, walk-forward tests, regimes and robustness.',
-        'Holds Up',
+        'Stress Tested',
         'scale',
         'You can challenge a result with held-back data, time windows, regimes and robustness checks.',
         ['out-of-sample', 'walk-forward', 'regime', 'robustness', 'alpha', 'beta'],
@@ -1149,52 +1149,7 @@ const levelFour: Level = {
   ]),
 };
 
-const levelFive: Level = {
-  id: 'holds-up',
-  number: 5,
-  name: 'What holds up',
-  title: 'What tends to hold up in practice',
-  status: 'live',
-  lead: 'Costs, allocation, trend filters, long-run tendencies, discipline, trading costs, survival, fading edges and choosing a strategy.',
-  outcomes: [
-    'Judge a strategy by its costs, risks and evidence',
-    'Explain why an edge can fade',
-    'Choose a strategy that fits a plan',
-  ],
-  certificate: 'Can judge a strategy and its risks.',
-  parts: [
-    part('Part 1: Investing', [
-      live(
-        'A',
-        'costs-time',
-        'Costs and time',
-        'Fees compound against you, and time in the market matters.',
-        'Costs Matter',
-        'receipt',
-        'You can price a round trip and turn it into a yearly cost.',
-        ['hurdle', 'basis point'],
-        ['spread', 'slippage', 'turnover', 'commission'],
-      ),
-      lesson('B', 'allocation-rebalancing', 'Allocation and rebalancing', 'A mix of assets, and when to bring it back to the target.', 'Rebalancer', 'scale'),
-      lesson('C', 'trend-filters', 'Trend filters in practice', 'What a long-average filter does, and what it costs.', 'Cutting the Fall', 'gauge'),
-      lesson('D', 'momentum-value', 'Momentum and value', 'Long-run tendencies, why they might exist, and their bad decades.', 'Long-Run Tendencies', 'trend'),
-      lesson('E', 'discipline', 'Discipline', 'The gap between a strategy and what people earn when they keep changing it.', 'Sticking to It', 'book'),
-    ]),
-    part('Part 2: Trading', [
-      lesson('F', 'trading-costs', 'Costs eat short-term trading', 'The spread, slippage and turnover as a per-trade cost.', 'Cost per Trade', 'receipt'),
-      lesson('G', 'survival', 'Risk per trade and survival', 'Losing streaks, position size and a daily loss limit.', 'Staying in the Game', 'shield'),
-      lesson('H', 'edge-decay', 'Why edges fade, and how to check', 'Forward testing, monitoring and when to stop.', 'Does It Still Work?', 'gauge'),
-      lesson('I', 'process', 'Process over outcome', 'A trade journal, luck, skill and reviewing mistakes.', 'Trade Journal', 'book'),
-      lesson('J', 'day-trading', 'The reality of day trading', 'What large studies of retail day traders have found after costs.', 'Honest Odds', 'compass'),
-    ]),
-    part('Part 3: Putting it to use', [
-      lesson('K', 'choosing-strategies', 'Choosing between the strategies on SLTP', 'How each strategy is built and who it suits.', 'Strategy Anatomy', 'layers'),
-    ]),
-  ],
-  quiz: [],
-};
-
-export const LEVELS: Level[] = [levelOne, levelTwo, levelThree, levelFour, levelFive];
+export const LEVELS: Level[] = [levelOne, levelTwo, levelThree, levelFour];
 
 export const WORKSHOPS: Workshop[] = [
   { id: 'strategy-code', title: 'Reading and writing strategy code', summary: 'The SLTP strategy class, Python basics, and a first strategy.', status: 'planned' },
@@ -1208,10 +1163,6 @@ export const WORKSHOPS: Workshop[] = [
 /* ---------- Derived helpers ---------- */
 
 export const ALL_LESSONS: Lesson[] = LEVELS.flatMap((level) => level.parts.flatMap((p) => p.lessons));
-export const ALL_LIVE_LESSONS: Lesson[] = ALL_LESSONS.filter((l) => l.status === 'live' && l.content);
-export const TOTAL_BADGES = ALL_LESSONS.length;
-export const TOTAL_CERTIFICATES = LEVELS.length;
-
 export const levelById = (id: string): Level | undefined => LEVELS.find((l) => l.id === id);
 export const lessonById = (id: string): Lesson | undefined => ALL_LESSONS.find((l) => l.id === id);
 export const levelForLesson = (id: string): Level | undefined =>
@@ -1223,17 +1174,9 @@ export function lessonsOf(level: Level): Lesson[] {
   return level.parts.flatMap((p) => p.lessons);
 }
 
-export function levelLessonIds(level: Level): string[] {
-  return lessonsOf(level).map((l) => l.id);
-}
-
 export function nextLevel(levelId: string): Level | undefined {
   const index = LEVELS.findIndex((l) => l.id === levelId);
   return index >= 0 ? LEVELS[index + 1] : undefined;
-}
-
-export function lessonLetter(lessonId: string): string {
-  return lessonById(lessonId)?.num ?? '';
 }
 
 /** Reading time is derived from the text and a fixed allowance per widget. */

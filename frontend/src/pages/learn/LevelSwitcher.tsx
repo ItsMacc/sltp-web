@@ -1,13 +1,11 @@
-// LevelSwitcher.tsx — Text tabs, a lock for unopened levels, and Continue.
+// LevelSwitcher.tsx — Text tabs with per-level progress, and Continue.
+// Levels stay open to browse; the order lock lives on lessons and on the level quiz.
 
 import { useEffect, useRef, type RefObject } from 'react';
-import { LockKeyhole } from 'lucide-react';
 import { LEVELS } from '../../learn/curriculum';
-import type { LearnProgress } from '../../learn/progress';
 
 interface LevelSwitcherProps {
   activeId: string;
-  progress: LearnProgress;
   counts: (level: (typeof LEVELS)[number]) => { done: number; total: number };
   onSelect: (id: string) => void;
   onContinue?: () => void;
@@ -17,7 +15,6 @@ interface LevelSwitcherProps {
 
 export function LevelSwitcher({
   activeId,
-  progress,
   counts,
   onSelect,
   onContinue,
@@ -57,10 +54,8 @@ export function LevelSwitcher({
     <div className="learn-switcher-shell" ref={innerRef}>
       <div className="learn-switcher">
         <div className="learn-switcher-tabs" role="tablist" aria-label="Course levels" ref={tabsRef}>
-          {LEVELS.map((level, index) => {
+          {LEVELS.map((level) => {
             const count = counts(level);
-            const previousOpen = index === 0 || progress.certifications.includes(LEVELS[index - 1].id);
-            const locked = level.status === 'outline' || !previousOpen;
             return (
               <button
                 key={level.id}
@@ -73,7 +68,6 @@ export function LevelSwitcher({
                 <span>{level.name}</span>
                 <span className="learn-switcher-count">
                   {count.done}/{count.total}
-                  {locked && <LockKeyhole size={13} aria-label="Locked" />}
                 </span>
               </button>
             );
@@ -86,10 +80,7 @@ export function LevelSwitcher({
             onClick={() => onSelect('workshops')}
           >
             <span>Workshops</span>
-            <span className="learn-switcher-count">
-              Planned
-              <LockKeyhole size={13} aria-label="Planned" />
-            </span>
+            <span className="learn-switcher-count">Planned</span>
           </button>
         </div>
         {onContinue && continueLabel && (

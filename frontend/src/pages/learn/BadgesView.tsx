@@ -4,7 +4,7 @@ import { Check } from 'lucide-react';
 import { LEVELS, lessonsOf } from '../../learn/curriculum';
 import type { Lesson } from '../../learn/types';
 import type { LearnProgress } from '../../learn/progress';
-import { iconFor } from '../../learn/badges';
+import { certificateIconFor, iconFor } from '../../learn/badges';
 import { Medal } from './Medal';
 
 export function BadgesView({
@@ -36,7 +36,7 @@ export function BadgesView({
               onClick={() => onOpenLevel(level.id)}
             >
               <Medal
-                icon={iconFor(level.number === 1 ? 'chart' : level.number === 5 ? 'scale' : 'book')}
+                icon={certificateIconFor(level, LEVELS.length)}
                 state={earned ? 'earned' : 'locked'}
                 size={56}
                 levelIndex={level.number - 1}

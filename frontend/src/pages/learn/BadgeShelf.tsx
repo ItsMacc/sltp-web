@@ -4,9 +4,9 @@ import { useEffect, useRef } from 'react';
 import type { RefObject } from 'react';
 import * as Tooltip from '@radix-ui/react-tooltip';
 import { ChevronLeft, ChevronRight, LockKeyhole } from 'lucide-react';
-import { LEVELS, lessonsOf } from '../../learn/curriculum';
+import { ALL_LESSONS, LEVELS, lessonsOf } from '../../learn/curriculum';
 import type { Level, Lesson } from '../../learn/types';
-import { iconFor } from '../../learn/badges';
+import { certificateIconFor, iconFor } from '../../learn/badges';
 import type { LearnProgress } from '../../learn/progress';
 import { Medal } from './Medal';
 
@@ -32,12 +32,8 @@ export function BadgeShelf({
   onOpenLevel,
 }: BadgeShelfProps) {
   const rowRef = useRef<HTMLDivElement>(null);
-  const earned = LEVELS.flatMap((level) => lessonsOf(level)).filter((lesson) =>
-    progress.sections.includes(lesson.id),
-  );
-  const firstUnearned = LEVELS.flatMap((level) => lessonsOf(level)).find(
-    (lesson) => !progress.sections.includes(lesson.id),
-  );
+  const earned = ALL_LESSONS.filter((lesson) => progress.sections.includes(lesson.id));
+  const firstUnearned = ALL_LESSONS.find((lesson) => !progress.sections.includes(lesson.id));
   const anchorId = pulseId ?? earned[earned.length - 1]?.id ?? firstUnearned?.id ?? null;
 
   useEffect(() => {
@@ -79,7 +75,7 @@ export function BadgeShelf({
     <section className="learn-shelf" aria-label="Badges" ref={shelfRef}>
       <div className="learn-shelf-head">
         <p className="learn-shelf-title">
-          Badges <span>{earned.length} of {LEVELS.flatMap((level) => lessonsOf(level)).length}</span>
+          Badges <span>{earned.length} of {ALL_LESSONS.length}</span>
         </p>
         <button type="button" className="learn-text-link" onClick={onOpenAll}>
           See all
@@ -147,7 +143,7 @@ export function BadgeShelf({
                     onClick={() => onOpenLevel(level)}
                   >
                     <Medal
-                      icon={levelIndex === 0 ? iconFor('chart') : iconFor(levelIndex === 4 ? 'scale' : 'book')}
+                      icon={certificateIconFor(level, LEVELS.length)}
                       state={certified ? 'earned' : 'locked'}
                       size={36}
                       levelIndex={levelIndex}

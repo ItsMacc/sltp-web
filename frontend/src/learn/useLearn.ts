@@ -2,8 +2,8 @@
 // counts, unlock state and the next unfinished lesson.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ALL_LESSONS, LEVELS, TOTAL_BADGES, levelForLesson, lessonsOf } from './curriculum';
-import type { Level, Lesson } from './types';
+import { LEVELS, levelForLesson, lessonsOf } from './curriculum';
+import type { IconKey, Level, Lesson } from './types';
 import { loadProgress, saveProgress, badgeAwardId, certificateAwardId, type LearnProgress } from './progress';
 
 export interface EarnedBadge {
@@ -12,6 +12,7 @@ export interface EarnedBadge {
   description: string;
   lessonId: string;
   earnedAt: string;
+  icon: IconKey;
 }
 
 export function useLearn() {
@@ -127,6 +128,7 @@ export function useLearn() {
         description: lesson.badgeDescription,
         lessonId: lesson.id,
         earnedAt: now,
+        icon: lesson.icon,
       };
     },
     [progress, commit],
@@ -157,11 +159,6 @@ export function useLearn() {
       commit({ ...progress, lastLevel: levelId });
     },
     [progress, commit],
-  );
-
-  const earnedBadges = useMemo(
-    () => ALL_LESSONS.filter((lesson) => progress.sections.includes(lesson.id)),
-    [progress.sections],
   );
 
   const earlierLesson = useCallback(
@@ -196,11 +193,8 @@ export function useLearn() {
     completeLesson,
     certifyLevel,
     setLastLevel,
-    earnedBadges,
     earlierLesson,
     laterLesson,
-    totalBadges: TOTAL_BADGES,
-    totalCertificates: LEVELS.length,
     levelForLesson,
   };
 }

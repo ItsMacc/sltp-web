@@ -63,11 +63,7 @@ export type WidgetId =
   | 'overfit-sweep'
   | 'bias-check'
   | 'walk-forward-map'
-  | 'skeptic-cards'
-  | 'toll-receipt'
-  | 'turnover-grid'
-  | 'cost-clock'
-  | 'turnover-record';
+  | 'skeptic-cards';
 
 export type ContentBlock =
   | { kind: 'p'; text: string }

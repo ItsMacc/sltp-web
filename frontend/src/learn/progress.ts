@@ -84,6 +84,7 @@ const sanitize = (progress: LearnProgress): LearnProgress => ({
   milestones: [],
   certifications: progress.certifications.filter((id) => LEVEL_IDS.has(id)),
   awards: progress.awards.filter((id) => VALID_AWARD_IDS.has(id)),
+  lastLevel: LEVEL_IDS.has(progress.lastLevel) ? progress.lastLevel : 'beginner',
 });
 
 const cache = (progress: LearnProgress, userId?: string | null) => {
